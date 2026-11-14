@@ -56,4 +56,24 @@ describe("workersAiUpstream", () => {
     const broken = workersAiUpstream({ ai: { run: async () => { throw new Error("quota"); } }, model: "m", publicModel: "p", prelude: [] });
     expect((await broken("/v1/chat/completions", post({ messages: [{ role: "user", content: "x" }] }))).status).toBe(502);
   });
+  it("runs an overridden public model on its own base model, with its system suffix and output cap", async () => {
+    const seen: Array<{ model: string; input: Record<string, unknown> }> = [];
+    const two = workersAiUpstream({
+      ai: { run: async (model, input) => { seen.push({ model, input }); return { response: "<think>hm</think>\n\nhello" }; } },
+      model: "big", publicModel: "flisk-wolf", prelude: [{ role: "system", content: "rules" }], others: { chat: [] },
+      overrides: { chat: { model: "small", systemSuffix: "\n/no_think", maxTokens: 2048 } },
+    });
+    const ask = (body: unknown) => two("/v1/chat/completions", post(body));
+    const res = await ask({ model: "chat", max_tokens: 99999, messages: [{ role: "system", content: "be brief" }, { role: "user", content: "hi" }] });
+    expect(((await res.json()) as { choices: Array<{ message: { content: string } }> }).choices[0].message.content).toBe("hello");
+    expect(seen[0].model).toBe("small");
+    expect(seen[0].input.messages).toEqual([{ role: "system", content: "be brief\n/no_think" }, { role: "user", content: "hi" }]);
+    expect(seen[0].input.max_tokens).toBe(2048);
+    await ask({ model: "chat", messages: [{ role: "user", content: "hi" }] });
+    expect(seen[1].input.messages).toEqual([{ role: "system", content: "/no_think" }, { role: "user", content: "hi" }]);
+    await ask({ model: "flisk-wolf", max_tokens: 99999, messages: [{ role: "user", content: "hi" }] });
+    expect(seen[2].model).toBe("big");
+    expect(seen[2].input.messages).toEqual([{ role: "system", content: "rules" }, { role: "user", content: "hi" }]);
+    expect(seen[2].input.max_tokens).toBe(1024);
+  });
 });
