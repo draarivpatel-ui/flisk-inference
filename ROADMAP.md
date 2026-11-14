@@ -72,7 +72,7 @@ button with the handoff ([website#143](https://github.com/flisk-sh/website/pull/
 5. **Search test in CI:** the 20 questions and the page each should find, run against Helpdock's ranking on every PR.
 
 **Needs from the owner:** a Cloudflare API token limited to Workers AI, set as a secret on Helpdock's Render service.
-inference.flisk.si's limit of 100 requests a day is sized to the account's Workers AI free allowance, and Ask would
+inference.flisk.si's limit of 300 requests a day is sized to the account's Workers AI free allowance, and Ask would
 share that allowance. So P0 first measures Workers AI usage per answer, then splits the allowance between the two caps
 or pays for more.
 
@@ -104,7 +104,7 @@ repository with P0's first PR, so the next model or prompt is scored the same wa
 
 - **A wrong answer costs more than no answer.** That is why passages always come first, unknown commands are dropped,
   and it says "beta".
-- **One Cloudflare allowance pays for two products.** Ask must not use up the API's 100 requests a day.
+- **One Cloudflare allowance pays for two products.** Ask must not use up the API's 300 requests a day.
 - **The name.** Wolf's own prompt writes `service.json`; Ask uses the same base model with a docs prompt. The label should
   say that, not suggest a model trained on the docs.
 - **Privacy.** Visitors paste logs and paths. Questions are not stored, and text that looks like a secret is never sent to
