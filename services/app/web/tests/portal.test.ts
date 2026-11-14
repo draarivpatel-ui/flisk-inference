@@ -359,6 +359,20 @@ describe("beta limits", () => {
     expect(upstreamCalls).toHaveLength(0);
     expect((await p.fetch(chat(key))).status).toBe(200);
   });
+  it("prices a model listed in dailyNeurons.models at its own rates and output cap", async () => {
+    // "cheap" costs a tenth: each fake call (10 in, 5 out) is 10*0.2 + 5*0.4 = 4 neurons instead of 40.
+    const p = make({ dailyNeurons: { budget: 70, perInputToken: 2, perOutputToken: 4, models: { cheap: { perInputToken: 0.2, perOutputToken: 0.4, maxOutputTokens: 2 } } }, maxOutputTokens: 1 });
+    const cookie = await login(p);
+    const { key } = await newKey(p, cookie);
+    const cheap = { model: "cheap", messages: [] };
+    for (let i = 0; i < 5; i++) expect((await p.fetch(chat(key, cheap))).status).toBe(200);
+    const u = (await (await p.fetch(req("/api/usage", { cookie }))).json()) as { today: { neurons: number } };
+    expect(u.today.neurons).toBeCloseTo(20);
+    // The dear model still costs 40 a call: one fits (20 + 40), the next (worst case 18) would pass 70; a cheap one still fits.
+    expect((await p.fetch(chat(key))).status).toBe(200);
+    expect((await p.fetch(chat(key))).status).toBe(429);
+    expect((await p.fetch(chat(key, cheap))).status).toBe(200);
+  });
   it("reports today's shared use against the daily limit in /api/usage", async () => {
     const p = make({ dailyLimit: 5 });
     const cookie = await login(p);

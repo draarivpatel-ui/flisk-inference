@@ -10,13 +10,17 @@ PUBLIC_URL = "https://inference.flisk.si"
 PORTAL_NAME = "Flisk Inference"
 MODEL = "@cf/qwen/qwen2.5-coder-32b-instruct"
 PUBLIC_MODEL = "flisk-wolf"
-# The same model without the Flisk config rules, for general chat (chat.flisk.si). Shares the daily limits.
+# No Flisk config rules, for general chat (chat.flisk.si, bot.flisk.si). Shares the daily limits.
 CHAT_MODEL = "flisk-wolf-chat"
+# Chat runs on a model that costs about a tenth per call and answers about four times faster (rates: src/worker.ts).
+# Remove this line to put chat back on MODEL.
+CHAT_BASE_MODEL = "@cf/qwen/qwen3-30b-a3b-fp8"
 # Shared by every key: keeps the beta inside the Workers AI free daily allowance.
 DAILY_LIMIT = "100"
 # Shown when the daily limit is used up and under the limits meter in the console.
 SPONSOR_URL = "https://github.com/sponsors/flisk-sh"
-# Workers AI neurons a day, all keys (about 80 for a short call, up to ~1,100 for a 64 KB prompt). The account's free
+# Workers AI neurons a day, all keys. A chat call with a 2,000-token prompt costs about 13 on CHAT_BASE_MODEL (it was
+# about 140 on MODEL); a short flisk-wolf call about 80, a 64 KB prompt up to ~1,100. The account's free
 # allowance is 10,000 a day, shared with gardener.flisk.si (~2,000) and the docs Ask on Helpdock (~2,800); calls fail past it.
 DAILY_NEURONS = "3500"
 

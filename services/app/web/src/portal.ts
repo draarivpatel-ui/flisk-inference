@@ -15,7 +15,8 @@ export interface PortalOptions {
   sponsorUrl?: string;                // where to sponsor the free tier; added to the daily-limit errors and shown in the console
   // Workers AI neurons per UTC day across all keys, priced per token; missing: no cap. The account's free allowance
   // (10,000 neurons a day) is shared with other Workers, so a request cap alone is not enough: one long prompt costs ten short ones.
-  dailyNeurons?: { budget: number; perInputToken: number; perOutputToken: number };
+  // `models` prices a public model name that runs on another base model (and may allow it a longer answer).
+  dailyNeurons?: { budget: number; perInputToken: number; perOutputToken: number; models?: Record<string, { perInputToken: number; perOutputToken: number; maxOutputTokens?: number }> };
   beta?: boolean;                     // the console says the service is in beta
   maxOutputTokens?: number;           // shown in the console; the upstream enforces it
   allowedModels?: string[];           // empty or missing: any model
@@ -266,6 +267,7 @@ export function createPortal(opts: PortalOptions) {
         return json(429, { error: { message: `the free beta's shared daily limit of ${opts.dailyLimit} requests is used up; it resets at 00:00 UTC${sponsor}` } });
 
       let body: string | undefined;
+      let price = opts.dailyNeurons;
       if (req.method === "POST") {
         const parsed = await readJson(req);
         if (parsed.stream) return json(400, { error: { message: "streaming is not supported" } });
@@ -273,8 +275,11 @@ export function createPortal(opts: PortalOptions) {
         body = JSON.stringify(parsed);
         if (opts.dailyNeurons) {
           // Refuse before the call when this one could cross the budget: about 4 characters a token in, the full output cap out.
-          const n = opts.dailyNeurons;
-          const outCap = Math.min(Number(parsed.max_tokens) || (opts.maxOutputTokens ?? 1024), opts.maxOutputTokens ?? 1024);
+          const own = Object.hasOwn(opts.dailyNeurons.models ?? {}, String(parsed.model)) ? opts.dailyNeurons.models?.[String(parsed.model)] : undefined;
+          const n = { ...opts.dailyNeurons, ...own };
+          price = n;
+          const cap = own?.maxOutputTokens ?? opts.maxOutputTokens ?? 1024;
+          const outCap = Math.min(Number(parsed.max_tokens) || cap, cap);
           const worst = Math.ceil(body.length / 4) * n.perInputToken + outCap * n.perOutputToken;
           if ((db.neurons?.[today] ?? 0) + worst > n.budget)
             return json(429, { error: { message: `the free beta's shared daily model budget is used up; it resets at 00:00 UTC${sponsor}` } });
@@ -287,7 +292,7 @@ export function createPortal(opts: PortalOptions) {
       if (up.ok) {
         // Add this call to the counters. Nothing is read first and nothing is written back whole, so a key revoked or
         // created while the (slow) model call ran is left alone.
-        const spent = opts.dailyNeurons ? (usage?.prompt_tokens ?? 0) * opts.dailyNeurons.perInputToken + (usage?.completion_tokens ?? 0) * opts.dailyNeurons.perOutputToken : 0;
+        const spent = price ? (usage?.prompt_tokens ?? 0) * price.perInputToken + (usage?.completion_tokens ?? 0) * price.perOutputToken : 0;
         await opts.store.recordUse(key.id, today, { input: usage?.prompt_tokens ?? 0, output: usage?.completion_tokens ?? 0, neurons: spent });
       }
       return new Response(text, { status: up.status, headers: { "content-type": up.headers.get("content-type") ?? "application/json" } });
