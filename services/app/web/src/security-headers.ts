@@ -1,4 +1,7 @@
 // Baseline security headers for every response the Worker sends. Headers a route already set are kept, never duplicated.
+// Default policy for a response that sets none: https-only sources, inline code allowed, no plugins, no foreign framing.
+const DEFAULT_CSP = "default-src 'self'; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https: wss:; media-src 'self' https:; frame-src 'self' https:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https:";
+
 const BASELINE: Record<string, string> = {
   "x-content-type-options": "nosniff",
   "x-frame-options": "SAMEORIGIN",
@@ -13,7 +16,7 @@ export function withSecurityHeaders(response: Response): Response {
   const out = new Response(response.body, response);
   for (const [name, value] of Object.entries(BASELINE)) if (!out.headers.has(name)) out.headers.set(name, value);
   const csp = out.headers.get("content-security-policy");
-  if (!csp) out.headers.set("content-security-policy", "frame-ancestors 'self'");
+  if (!csp) out.headers.set("content-security-policy", DEFAULT_CSP);
   else if (!/(^|;)\s*frame-ancestors\b/i.test(csp)) out.headers.set("content-security-policy", `${csp}; frame-ancestors 'self'`);
   return out;
 }

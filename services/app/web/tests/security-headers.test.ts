@@ -12,7 +12,7 @@ test("adds the baseline to a bare response and a frame-ancestors policy", () => 
   expect(res.headers.get("strict-transport-security")).toBe("max-age=31536000; includeSubDomains");
   expect(res.headers.get("referrer-policy")).toBe("strict-origin-when-cross-origin");
   expect(res.headers.get("permissions-policy")).toBe("camera=(), microphone=(), geolocation=()");
-  expect(res.headers.get("content-security-policy")).toBe("frame-ancestors 'self'");
+  expect(res.headers.get("content-security-policy")).toBe("default-src 'self'; script-src 'self' 'unsafe-inline' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data: https:; connect-src 'self' https: wss:; media-src 'self' https:; frame-src 'self' https:; worker-src 'self' blob:; object-src 'none'; frame-ancestors 'self'; base-uri 'self'; form-action 'self' https:");
 });
 
 test("keeps headers and a policy the route already set", () => {
