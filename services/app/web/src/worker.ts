@@ -3,6 +3,7 @@ import modelfile from "../../../../deploy/Modelfile";
 import { type D1, d1Store } from "./d1-store";
 import { catalogResponse } from "./catalog";
 import { createPortal } from "./portal";
+import { withSecurityHeaders } from "./security-headers";
 import { type AiBinding, parseModelfile, workersAiUpstream } from "./workers-ai";
 
 interface Env {
@@ -23,7 +24,13 @@ const CHAT_MAX_TOKENS = 2048;
 
 let portal: ReturnType<typeof createPortal> | undefined;
 export default {
-  fetch(req: Request, env: Env): Promise<Response> {
+  async fetch(req: Request, env: Env): Promise<Response> {
+    return withSecurityHeaders(await handle(req, env));
+  },
+};
+
+function handle(req: Request, env: Env): Promise<Response> {
+  {
     // The public model list for Flisk apps: no key needed, nothing secret in it.
     if (req.method === "GET" && new URL(req.url).pathname === "/v1/catalog") return Promise.resolve(catalogResponse());
     const [perInputToken, perOutputToken] = RATES[env.MODEL] ?? DEAREST;
@@ -48,5 +55,5 @@ export default {
       indexHtml: async () => (await env.ASSETS.fetch(new Request(new URL("/index.html", env.PUBLIC_URL)))).text(),
     });
     return portal.fetch(req);
-  },
-};
+  }
+}
