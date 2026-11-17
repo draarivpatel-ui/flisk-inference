@@ -1,6 +1,6 @@
 // The portal's storage on Cloudflare D1 (migrations/0002_tables.sql). Every write is one statement (or one batch) that
 // changes one row or adds to a counter, so overlapping requests cannot undo each other.
-import type { Db, Key, Store, User } from "./portal";
+import type { Db, Key, ProviderRow, Store, User } from "./portal";
 
 export interface D1Statement { bind(...v: unknown[]): D1Statement; first<T>(): Promise<T | null>; run(): Promise<unknown>; all<T>(): Promise<{ results: T[] }> }
 export interface D1 { prepare(sql: string): D1Statement; batch(statements: D1Statement[]): Promise<unknown> }
@@ -41,13 +41,23 @@ export function d1Store(db: D1, secret: () => string): Store {
     async revokeKey(id: string) {
       await run("UPDATE keys SET revoked = 1 WHERE id = ?", id);
     },
+    async getProvider(userId: string) {
+      const r = await db.prepare("SELECT user_id, provider, model, sealed, last4, updated FROM provider_keys WHERE user_id = ?").bind(userId).first<{ user_id: string; provider: string; model: string; sealed: string; last4: string; updated: string }>();
+      return r ? ({ userId: r.user_id, provider: r.provider, model: r.model, sealed: r.sealed, last4: r.last4, updated: r.updated } as ProviderRow) : null;
+    },
+    async putProvider(r: ProviderRow) {
+      await run("INSERT INTO provider_keys (user_id, provider, model, sealed, last4, updated) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET provider = excluded.provider, model = excluded.model, sealed = excluded.sealed, last4 = excluded.last4, updated = excluded.updated", r.userId, r.provider, r.model, r.sealed, r.last4, r.updated);
+    },
+    async deleteProvider(userId: string) { await run("DELETE FROM provider_keys WHERE user_id = ?", userId); },
     async recordUse(keyId, day, use) {
       const prune = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
       await db.batch([
         db.prepare("UPDATE keys SET requests = requests + 1, input = input + ?, output = output + ?, last_used = ? WHERE id = ?").bind(use.input, use.output, new Date().toISOString(), keyId),
         db.prepare("INSERT INTO key_days (key_id, day, requests, input, output) VALUES (?, ?, 1, ?, ?) ON CONFLICT(key_id, day) DO UPDATE SET requests = requests + 1, input = input + excluded.input, output = output + excluded.output").bind(keyId, day, use.input, use.output),
-        db.prepare("INSERT INTO day_totals (day, requests, neurons) VALUES (?, 1, ?) ON CONFLICT(day) DO UPDATE SET requests = requests + 1, neurons = neurons + excluded.neurons").bind(day, use.neurons),
-        db.prepare("DELETE FROM day_totals WHERE day < ?").bind(prune),
+        ...(use.own ? [] : [
+          db.prepare("INSERT INTO day_totals (day, requests, neurons) VALUES (?, 1, ?) ON CONFLICT(day) DO UPDATE SET requests = requests + 1, neurons = neurons + excluded.neurons").bind(day, use.neurons),
+          db.prepare("DELETE FROM day_totals WHERE day < ?").bind(prune),
+        ]),
       ]);
     },
   };

@@ -2,7 +2,7 @@
 // key (a Worker secret). The Flisk rules in front of each public model are the same; the answer keeps the public model name.
 import type { ChatMessage } from "./workers-ai";
 
-export function openaiUpstream(opts: { key: string; model: string; publicModel: string; preludes: Record<string, ChatMessage[]>; maxTokens?: number; fetchImpl?: typeof fetch }) {
+export function openaiUpstream(opts: { key: string; model: string; publicModel: string; preludes: Record<string, ChatMessage[]>; maxTokens?: number; url?: string; tokenParam?: "max_tokens" | "max_completion_tokens"; fetchImpl?: typeof fetch }) {
   const doFetch = opts.fetchImpl ?? fetch;
   const cap = opts.maxTokens ?? 1024;
   return async (path: string, init: RequestInit): Promise<Response> => {
@@ -14,10 +14,10 @@ export function openaiUpstream(opts: { key: string; model: string; publicModel: 
     if (!messages.length) return Response.json({ error: { message: "messages must not be empty", type: "invalid_request_error" } }, { status: 400 });
     let res: Response;
     try {
-      res = await doFetch("https://api.openai.com/v1/chat/completions", {
+      res = await doFetch(opts.url ?? "https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: { "content-type": "application/json", authorization: `Bearer ${opts.key}` },
-        body: JSON.stringify({ model: opts.model, messages: [...opts.preludes[publicModel], ...messages], max_completion_tokens: Math.min(Number(body.max_tokens) || cap, cap) }),
+        body: JSON.stringify({ model: opts.model, messages: [...opts.preludes[publicModel], ...messages], [opts.tokenParam ?? "max_completion_tokens"]: Math.min(Number(body.max_tokens) || cap, cap) }),
         signal: init.signal,
       });
     } catch (e) {

@@ -14,8 +14,9 @@ const BASELINE: Record<string, string> = {
 export function withSecurityHeaders(response: Response): Response {
   // A new Response, because the headers of fetched or asset responses can be immutable.
   const out = new Response(response.body, response);
-  for (const [name, value] of Object.entries(BASELINE)) if (!out.headers.has(name)) out.headers.set(name, value);
   const csp = out.headers.get("content-security-policy");
+  // A page that names who may frame it (the model picker) is framed by CSP; the older x-frame-options would only say "no" to them.
+  for (const [name, value] of Object.entries(BASELINE)) if (!out.headers.has(name) && !(name === "x-frame-options" && csp && /(^|;)\s*frame-ancestors\b/i.test(csp))) out.headers.set(name, value);
   if (!csp) out.headers.set("content-security-policy", DEFAULT_CSP);
   else if (!/(^|;)\s*frame-ancestors\b/i.test(csp)) out.headers.set("content-security-policy", `${csp}; frame-ancestors 'self'`);
   return out;
