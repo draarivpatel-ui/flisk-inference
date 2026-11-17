@@ -17,6 +17,9 @@ export interface PortalOptions {
   // (10,000 neurons a day) is shared with other Workers, so a request cap alone is not enough: one long prompt costs ten short ones.
   // `models` prices a public model name that runs on another base model (and may allow it a longer answer).
   dailyNeurons?: { budget: number; perInputToken: number; perOutputToken: number; models?: Record<string, { perInputToken: number; perOutputToken: number; maxOutputTokens?: number }> };
+  // When the free allowance is used up (the daily request limit or the neuron budget), calls go here instead of getting a 429,
+  // until the day's total reaches dailyLimit + `dailyLimit` here. This one is paid by the operator, so it has its own cap.
+  overflow?: { upstream: (path: string, init: RequestInit) => Promise<Response>; dailyLimit: number };
   beta?: boolean;                     // the console says the service is in beta
   maxOutputTokens?: number;           // shown in the console; the upstream enforces it
   allowedModels?: string[];           // empty or missing: any model
@@ -263,8 +266,12 @@ export function createPortal(opts: PortalOptions) {
       rate.set(key.id, [...recent, now]);
       const today = new Date().toISOString().slice(0, 10);
       const sponsor = opts.sponsorUrl ? `. Sponsors pay for these free calls: ${opts.sponsorUrl}` : "";
-      if (opts.dailyLimit && (db.total?.[today] ?? 0) >= opts.dailyLimit)
-        return json(429, { error: { message: `the free beta's shared daily limit of ${opts.dailyLimit} requests is used up; it resets at 00:00 UTC${sponsor}` } });
+      const canSpill = !!opts.overflow && (db.total?.[today] ?? 0) < (opts.dailyLimit ?? 0) + opts.overflow.dailyLimit;
+      let spill = false; // this call runs on the overflow upstream, not on the free allowance
+      if (opts.dailyLimit && (db.total?.[today] ?? 0) >= opts.dailyLimit) {
+        if (!canSpill) return json(429, { error: { message: `the free beta's shared daily limit of ${opts.dailyLimit} requests is used up; it resets at 00:00 UTC${sponsor}` } });
+        spill = true;
+      }
 
       let body: string | undefined;
       let price = opts.dailyNeurons;
@@ -273,7 +280,7 @@ export function createPortal(opts: PortalOptions) {
         if (parsed.stream) return json(400, { error: { message: "streaming is not supported" } });
         if (opts.allowedModels?.length && !opts.allowedModels.includes(String(parsed.model))) return json(400, { error: { message: `model must be one of: ${opts.allowedModels.join(", ")}` } });
         body = JSON.stringify(parsed);
-        if (opts.dailyNeurons) {
+        if (opts.dailyNeurons && !spill) {
           // Refuse before the call when this one could cross the budget: about 4 characters a token in, the full output cap out.
           const own = Object.hasOwn(opts.dailyNeurons.models ?? {}, String(parsed.model)) ? opts.dailyNeurons.models?.[String(parsed.model)] : undefined;
           const n = { ...opts.dailyNeurons, ...own };
@@ -281,11 +288,14 @@ export function createPortal(opts: PortalOptions) {
           const cap = own?.maxOutputTokens ?? opts.maxOutputTokens ?? 1024;
           const outCap = Math.min(Number(parsed.max_tokens) || cap, cap);
           const worst = Math.ceil(body.length / 4) * n.perInputToken + outCap * n.perOutputToken;
-          if ((db.neurons?.[today] ?? 0) + worst > n.budget)
-            return json(429, { error: { message: `the free beta's shared daily model budget is used up; it resets at 00:00 UTC${sponsor}` } });
+          if ((db.neurons?.[today] ?? 0) + worst > n.budget) {
+            if (!canSpill) return json(429, { error: { message: `the free beta's shared daily model budget is used up; it resets at 00:00 UTC${sponsor}` } });
+            spill = true;
+          }
         }
       }
-      const up = await upstream(path, { method: req.method, headers: { "content-type": "application/json" }, body, signal: AbortSignal.timeout(120_000) });
+      if (spill) price = undefined; // the overflow upstream costs no Workers AI neurons
+      const up = await (spill && opts.overflow ? opts.overflow.upstream : upstream)(path, { method: req.method, headers: { "content-type": "application/json" }, body, signal: AbortSignal.timeout(120_000) });
       const text = await up.text();
       let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
       try { usage = (JSON.parse(text) as { usage?: typeof usage }).usage; } catch { /* not JSON: count the request only */ }
