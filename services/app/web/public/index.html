@@ -103,6 +103,11 @@ h3{letter-spacing:-.01em}
 .hero>div:first-child{padding:72px 40px 64px 36px;border-right:1px solid var(--line2);display:flex;flex-direction:column;justify-content:center;align-items:flex-start}
 .hero h1{font-size:clamp(36px,4vw,52px);line-height:1;margin:22px 0 22px}
 .hero p.lead{font-size:18px;color:var(--mut)}
+.flow{display:flex;align-items:stretch;gap:6px;margin:0 0 22px;width:100%;max-width:520px}
+.flow>div{flex:1;min-width:0;border:1px solid var(--line2);background:var(--card,transparent);padding:10px 8px;text-align:center;font-weight:600;font-size:14px;line-height:1.25}
+.flow>div small{display:block;font-weight:400;font-size:11px;color:var(--mut);margin-top:3px}
+.flow>i{align-self:center;font-style:normal;font-size:20px;color:var(--mut)}
+.links{display:flex;flex-wrap:wrap;gap:6px 18px;margin:18px 0 0;font-size:14px}.links a{color:inherit;text-decoration:underline;text-underline-offset:3px}
 .proof li::before{content:"";display:inline-block;width:7px;height:7px;background:var(--acc);margin-right:9px;vertical-align:1px}
 .demo{border:0;padding:0 36px 32px;background:transparent;display:flex;flex-direction:column;justify-content:flex-start}
 .demo::before{content:"";display:block;flex:1 1 64px;min-height:64px;max-height:240px;margin:0 -36px 26px;border-bottom:1px solid var(--line2);background:repeating-linear-gradient(-45deg,var(--acc) 0 2px,transparent 2px 11px)}
@@ -340,8 +345,10 @@ function landing(){
    h("div",{},h("span",{class:"pill"},h("i",{class:"dot "+(status?(ok?"ok":"bad"):"")}),status?(ok?"Model online":"Model offline right now"):"Checking status"),
     h("h1",{},"A free AI model for your apps."),
     h("p",{class:"lead"},"Get a free key in one minute and call the model from any app, script or chatbot. It speaks the OpenAI API, so the code you have already works. Free beta, limited capacity."),
+    h("div",{class:"flow"},h("div",{},"Your app",h("small",{},"any OpenAI SDK")),h("i",{},"→"),h("div",{},"Flisk Inference",h("small",{},"free model")),h("i",{},"→"),h("div",{},"Answer",h("small",{},"text or JSON"))),
     h("div",{class:"cta"},h("a",{class:"btn primary",href:"?section=keys"},"Get a free API key"),h("a",{class:"btn",href:"#demos"},"See it work")),
-    h("ul",{class:"proof"},h("li",{},"No card, sign in with GitHub"),h("li",{},"Works with any OpenAI SDK"),h("li",{},"Also reviews your service.json in pull requests"))),
+    h("ul",{class:"proof"},h("li",{},"No card, sign in with GitHub"),h("li",{},"Works with any OpenAI SDK"),h("li",{},"Also reviews your service.json in pull requests")),
+    h("div",{class:"links"},h("a",{href:"https://chat.flisk.si"},"Try it in chat →"),h("a",{href:"#api"},"API quickstart →"),h("a",{href:"https://github.com/flisk-sh/flisk-inference"},"Source on GitHub →"))),
    h("div",{class:"demo card"},
     h("div",{class:"demo-label"},"You ask"),
     h("div",{class:"demo-q"},"Write a Flisk service.json for a worker called emailer in the shop stack."),
