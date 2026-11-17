@@ -54,7 +54,7 @@ describe("saved provider key", () => {
     expect(readFileSync(join(dir, "db.json"), "utf-8")).not.toContain("sk-test-1234567890");
     const again = await p.fetch(new Request(`${BASE}/api/provider`, j(cookie, { provider: "openai", model: "gpt-4o-mini" }, "PUT")));
     expect(again.status).toBe(200);
-    const cur = ((await (await p.fetch(new Request(`${BASE}/api/provider`, { headers: { cookie } }))).json()) as { current: { model: string; last4: string } }).current;
+    const cur = ((await (await p.fetch(new Request(`${BASE}/api/provider`, { headers: { cookie } }))).json()) as { current: { provider: string; model: string; last4: string } }).current;
     expect(cur).toEqual({ provider: "openai", model: "gpt-4o-mini", last4: "7890" });
   });
   it("runs calls on the person's own account and does not count them in the shared daily limit", async () => {

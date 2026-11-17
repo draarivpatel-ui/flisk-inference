@@ -36,6 +36,9 @@ function slow(store: Store, ms = 15, onRecordUse?: () => void): Store {
     addKey: async (k) => { await sleep(ms); return store.addKey(k); },
     revokeKey: async (id) => { await sleep(ms); return store.revokeKey(id); },
     recordUse: async (...a) => { onRecordUse?.(); await sleep(ms); return store.recordUse(...a); },
+    getProvider: async (id) => { await sleep(ms); return store.getProvider(id); },
+    putProvider: async (r) => { await sleep(ms); return store.putProvider(r); },
+    deleteProvider: async (id) => { await sleep(ms); return store.deleteProvider(id); },
   };
 }
 
