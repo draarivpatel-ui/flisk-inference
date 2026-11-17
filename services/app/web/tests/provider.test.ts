@@ -87,4 +87,11 @@ describe("picker", () => {
     expect(js).toContain(`"${BASE}"`);
     expect(js).toContain("FliskPicker");
   });
+
+  it("draws the chat-style picker: search, provider rail, catalog list, key box, logos inline", async () => {
+    const { p } = await setup();
+    const html = await (await p.fetch(new Request(`${BASE}/picker`))).text();
+    for (const part of ["Search models", '"rail"', "pgrid", "/v1/catalog", "/api/provider", "data:image/svg+xml", "flisk-picker"]) expect(html).toContain(part);
+    expect(html).not.toContain("<select");
+  });
 });
