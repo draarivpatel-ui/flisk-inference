@@ -5,8 +5,8 @@ export interface CatalogModel {
   id: string; name: string; provider: string; providerName: string; description: string;
   price: "free" | "$" | "$$" | "$$$"; free: boolean; key: "" | "anthropic" | "openai" | "openrouter"; model: string;
   tags: string[];
-  // A model announced or rumoured but not callable yet: shown in pickers with a "coming soon" label, still selectable (the call fails until the provider ships it).
-  soon?: boolean;
+  // A recently released model: pickers show a "new" label next to it.
+  new?: boolean;
 }
 
 export const CATALOG: CatalogModel[] = [
@@ -14,8 +14,8 @@ export const CATALOG: CatalogModel[] = [
   { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", provider: "anthropic", providerName: "Anthropic", description: "Fast, strong model for websites, code and everyday work", price: "$$", free: false, key: "anthropic", model: "claude-sonnet-5-5", tags: ["code", "reasoning"] },
   { id: "claude-opus-5-5", name: "Claude Opus 5.5", provider: "anthropic", providerName: "Anthropic", description: "Anthropic's most capable model for long, demanding tasks", price: "$$$", free: false, key: "anthropic", model: "claude-opus-5-5", tags: ["code", "reasoning"] },
   { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", provider: "anthropic", providerName: "Anthropic", description: "Quick and low-cost for short tasks", price: "$", free: false, key: "anthropic", model: "claude-haiku-5-5", tags: ["fast"] },
-  { id: "gpt-6-2-astra", name: "GPT-6.2 Astra", provider: "openai", providerName: "OpenAI", description: "OpenAI's frontier model for the hardest professional work. Needs your OpenAI key", price: "$$$", free: false, key: "openai", model: "gpt-6.2-astra", tags: ["reasoning", "code"] },
-  { id: "gpt-6-2-sol", name: "GPT-6.2 Sol", provider: "openai", providerName: "OpenAI", description: "OpenAI's efficient model for everyday work. Needs your OpenAI key", price: "$$", free: false, key: "openai", model: "gpt-6.2-sol", tags: ["fast"] },
+  { id: "gpt-6-2-astra", name: "GPT-6.2 Astra", provider: "openai", providerName: "OpenAI", description: "OpenAI's frontier model for the hardest professional work. Needs your OpenAI key", price: "$$$", free: false, key: "openai", model: "gpt-6.2-astra", tags: ["reasoning", "code"], new: true },
+  { id: "gpt-6-2-sol", name: "GPT-6.2 Sol", provider: "openai", providerName: "OpenAI", description: "OpenAI's efficient model for everyday work. Needs your OpenAI key", price: "$$", free: false, key: "openai", model: "gpt-6.2-sol", tags: ["fast"], new: true },
   { id: "openai", name: "OpenAI", provider: "openai", providerName: "OpenAI", description: "Any OpenAI model: type its name from your OpenAI model list", price: "$$", free: false, key: "openai", model: "", tags: [] },
   { id: "openrouter", name: "OpenRouter", provider: "openrouter", providerName: "OpenRouter", description: "Hundreds of models (Gemini, Llama, DeepSeek, Kimi, Qwen) with one OpenRouter key", price: "$", free: false, key: "openrouter", model: "", tags: [] },
 ];
