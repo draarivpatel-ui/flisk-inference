@@ -76,4 +76,18 @@ describe("workersAiUpstream", () => {
     expect(seen[2].input.messages).toEqual([{ role: "system", content: "rules" }, { role: "user", content: "hi" }]);
     expect(seen[2].input.max_tokens).toBe(1024);
   });
+  it("sends a reasoning effort: the model's default, medium on request, never xhigh", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const up = workersAiUpstream({
+      ai: { run: async (_m, input) => { seen.push(input); return { response: "ok" }; } },
+      model: "big", publicModel: "p", prelude: [], others: { chat: [] },
+      overrides: { chat: { model: "q", reasoningEffort: "low" } },
+    });
+    const ask = (extra: object, model = "chat") => up("/v1/chat/completions", post({ model, messages: [{ role: "user", content: "hi" }], ...extra }));
+    await ask({});
+    await ask({ reasoning_effort: "medium" });
+    await ask({ reasoning_effort: "xhigh" });
+    await ask({}, "p");
+    expect(seen.map((i) => i.reasoning_effort)).toEqual(["low", "medium", "low", undefined]);
+  });
 });
