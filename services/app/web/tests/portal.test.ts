@@ -226,12 +226,31 @@ describe("/v1 proxy", () => {
     const usage = (await (await p.fetch(req("/api/usage", { cookie }))).json()) as { totals: { requests: number; input: number; output: number } };
     expect(usage.totals).toEqual({ requests: 2, input: 20, output: 10 });
   });
-  it("applies the model allowlist and rejects streaming", async () => {
+  it("applies the model allowlist", async () => {
     const p = make({ allowedModels: ["flisk-wolf"] });
     const { key } = await newKey(p, await login(p));
     expect((await p.fetch(chat(key, { model: "other" }))).status).toBe(400);
-    expect((await p.fetch(chat(key, { model: "flisk-wolf", stream: true }))).status).toBe(400);
     expect((await p.fetch(chat(key, { model: "flisk-wolf" }))).status).toBe(200);
+  });
+  it("passes a streamed answer through and meters it when the stream ends", async () => {
+    const e = new TextEncoder();
+    const events = [`data: ${JSON.stringify({ choices: [{ delta: { content: "Hi" } }] })}\n\n`, `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 6, completion_tokens: 2 } })}\n\n`, "data: [DONE]\n\n"];
+    const p = make({ upstream: async () => new Response(new ReadableStream({ start(c) { for (const x of events) c.enqueue(e.encode(x)); c.close(); } }), { headers: { "content-type": "text/event-stream" } }) });
+    const cookie = await login(p);
+    const { key } = await newKey(p, cookie);
+    const res = await p.fetch(chat(key, { model: "m", messages: [], stream: true }));
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    expect(await res.text()).toContain('"content":"Hi"');
+    const usage = (await (await p.fetch(req("/api/usage", { cookie }))).json()) as { totals: { requests: number; input: number; output: number } };
+    expect(usage.totals).toEqual({ requests: 1, input: 6, output: 2 });
+  });
+  it("sends a whole answer as events when the upstream cannot stream", async () => {
+    const p = make();
+    const { key } = await newKey(p, await login(p));
+    const res = await p.fetch(chat(key, { model: "m", messages: [], stream: true }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    expect((await res.text()).trim().endsWith("data: [DONE]")).toBe(true);
   });
   it("rate limits per key", async () => {
     const p = make({ ratePerMinute: 2 });
