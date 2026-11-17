@@ -91,3 +91,17 @@ describe("workersAiUpstream", () => {
     expect(seen.map((i) => i.reasoning_effort)).toEqual(["low", "medium", "low", undefined]);
   });
 });
+
+describe("flisk-wolf-large on Inkling 2 Small", () => {
+  it("runs on its own base model at low effort, with no Flisk rules", async () => {
+    const seen: Array<{ model: string; input: Record<string, unknown> }> = [];
+    const up = workersAiUpstream({ ai: { run: async (model, input) => { seen.push({ model, input }); return { choices: [{ message: { content: "ok" } }], usage: { prompt_tokens: 3, completion_tokens: 1 } }; } }, model: "coder", publicModel: "flisk-wolf", prelude: [{ role: "system", content: "rules" }], others: { "flisk-wolf-large": [] }, overrides: { "flisk-wolf-large": { model: "@cf/thinkingmachines/inkling-2-small", reasoningEffort: "low", maxTokens: 2048 } } });
+    const res = await up("/v1/chat/completions", { method: "POST", body: JSON.stringify({ model: "flisk-wolf-large", messages: [{ role: "user", content: "hi" }] }) });
+    const json = (await res.json()) as { model: string; choices: Array<{ message: { content: string } }> };
+    expect(json.model).toBe("flisk-wolf-large");
+    expect(json.choices[0].message.content).toBe("ok");
+    expect(seen[0].model).toBe("@cf/thinkingmachines/inkling-2-small");
+    expect(seen[0].input.reasoning_effort).toBe("low");
+    expect((seen[0].input.messages as Array<{ content: string }>).some((m) => m.content === "rules")).toBe(false);
+  });
+});

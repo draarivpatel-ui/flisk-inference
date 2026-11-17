@@ -15,6 +15,9 @@ CHAT_MODEL = "flisk-wolf-chat"
 # Chat runs on Qwen3.8 27B at reasoning effort low (rates: src/worker.ts). The old qwen3-30b-a3b-fp8 retires on 20 Nov 2026.
 # Remove this line to put chat back on MODEL.
 CHAT_BASE_MODEL = "@cf/qwen/qwen3.8-27b"
+# Flisk Wolf Large: Inkling 2 Small (Thinking Machines, 594B MoE) on Workers AI. Needs the Workers Paid plan; remove LARGE_BASE_MODEL to turn it off.
+LARGE_MODEL = "flisk-wolf-large"
+LARGE_BASE_MODEL = "@cf/thinkingmachines/inkling-2-small"
 # Shared by every key: keeps the beta inside the Workers AI free daily allowance.
 DAILY_LIMIT = "60"
 # Shown when the daily limit is used up and under the limits meter in the console.
