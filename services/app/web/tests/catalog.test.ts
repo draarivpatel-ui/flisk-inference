@@ -29,7 +29,7 @@ test("the previous GPT-6 Astra is listed, and every named OpenAI model uses an I
   expect(CATALOG.find((m) => m.id === "gpt-6-astra")).toMatchObject({ key: "openai", model: "gpt-6-astra", free: false });
   expect(CATALOG.find((m) => m.id === "gpt-6-astra")?.new).toBeUndefined();
   // IDs checked against developers.openai.com/api/docs/models on 2026-11-17
-  const official = ["gpt-6.2-astra", "gpt-6.2-sol", "gpt-6-astra"];
+  const official = ["gpt-6.2-astra", "gpt-6.2-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-luna"];
   const named = CATALOG.filter((m) => m.provider === "openai" && m.model !== "").map((m) => m.model);
   expect(named).toEqual(official);
 });
