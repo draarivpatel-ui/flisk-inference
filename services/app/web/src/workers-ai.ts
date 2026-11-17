@@ -12,7 +12,7 @@ export function parseModelfile(text: string): ChatMessage[] {
 }
 
 /** What one public model name may change: its base model, text added to the caller's system message, its output cap. */
-export interface ModelOverride { model?: string; systemSuffix?: string; maxTokens?: number }
+export interface ModelOverride { model?: string; systemSuffix?: string; maxTokens?: number; reasoningEffort?: string }
 
 /** Adds `suffix` to the first system message, or puts one in front when there is none. */
 function withSystemSuffix(messages: ChatMessage[], suffix: string): ChatMessage[] {
@@ -30,16 +30,18 @@ export function workersAiUpstream(opts: { ai: AiBinding; model: string; publicMo
   return async (path: string, init: RequestInit): Promise<Response> => {
     if (path === "/v1/models") return Response.json({ object: "list", data: Object.keys(preludes).map((id) => ({ id, object: "model", owned_by: "flisk" })) });
     if (path !== "/v1/chat/completions" || init.method !== "POST") return Response.json({ error: { message: "not found" } }, { status: 404 });
-    const body = JSON.parse(String(init.body ?? "{}")) as { model?: string; messages?: ChatMessage[]; max_tokens?: number };
+    const body = JSON.parse(String(init.body ?? "{}")) as { model?: string; messages?: ChatMessage[]; max_tokens?: number; reasoning_effort?: string };
     const publicModel = body.model && Object.hasOwn(preludes, body.model) ? body.model : opts.publicModel;
     const messages = (body.messages ?? []).filter((m) => m && typeof m.content === "string").map((m) => ({ role: String(m.role), content: m.content }));
     if (!messages.length) return Response.json({ error: { message: "messages must not be empty", type: "invalid_request_error" } }, { status: 400 });
     const over = opts.overrides?.[publicModel] ?? {};
     const maxTokens = over.maxTokens ?? defaultMax;
+    // Only a model with a default effort takes one; a caller may ask for low or medium, never the dear xhigh.
+    const effort = over.reasoningEffort ? (body.reasoning_effort === "medium" ? "medium" : over.reasoningEffort) : undefined;
     const all = [...preludes[publicModel], ...messages];
     let res: { response?: unknown; usage?: { prompt_tokens?: number; completion_tokens?: number }; choices?: Array<{ message?: { content?: string } }> };
     try {
-      res = (await opts.ai.run(over.model ?? opts.model, { messages: over.systemSuffix ? withSystemSuffix(all, over.systemSuffix) : all, max_tokens: Math.min(Number(body.max_tokens) || maxTokens, maxTokens), temperature: 0 })) as typeof res;
+      res = (await opts.ai.run(over.model ?? opts.model, { messages: over.systemSuffix ? withSystemSuffix(all, over.systemSuffix) : all, max_tokens: Math.min(Number(body.max_tokens) || maxTokens, maxTokens), temperature: 0, ...(effort ? { reasoning_effort: effort } : {}) })) as typeof res;
     } catch (e) {
       return Response.json({ error: { message: `model call failed: ${(e as Error).message}`, type: "api_error" } }, { status: 502 });
     }

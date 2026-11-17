@@ -17,6 +17,7 @@ interface Env {
 const RATES: Record<string, [number, number]> = {
   "@cf/qwen/qwen2.5-coder-32b-instruct": [0.06, 0.0909],
   "@cf/qwen/qwen3-30b-a3b-fp8": [0.004625, 0.030475],
+  "@cf/qwen/qwen3.8-27b": [0.040909, 0.290909],
 };
 const DEAREST: [number, number] = [0.06, 0.0909];
 // The chat model's answers may be longer: a whole web page does not fit in 1,024 tokens, and its output is cheap.
@@ -42,7 +43,7 @@ function handle(req: Request, env: Env): Promise<Response> {
       publicUrl: env.PUBLIC_URL,
       store: d1Store(env.DB, () => env.SESSION_SECRET),
       upstream: workersAiUpstream({ ai: env.AI, model: env.MODEL, publicModel: env.PUBLIC_MODEL, prelude: parseModelfile(modelfile), others: env.CHAT_MODEL ? { [env.CHAT_MODEL]: [] } : {},
-        overrides: env.CHAT_MODEL && chatBase ? { [env.CHAT_MODEL]: { model: chatBase, systemSuffix: chatBase.includes("qwen3") ? "\n/no_think" : undefined, maxTokens: CHAT_MAX_TOKENS } } : {} }),
+        overrides: env.CHAT_MODEL && chatBase ? { [env.CHAT_MODEL]: { model: chatBase, systemSuffix: chatBase.includes("qwen3-30b") ? "\n/no_think" : undefined, reasoningEffort: chatBase.includes("qwen3.8") ? "low" : undefined, maxTokens: CHAT_MAX_TOKENS } } : {} }),
       allowedModels: [env.PUBLIC_MODEL, ...(env.CHAT_MODEL ? [env.CHAT_MODEL] : [])],
       github: env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET ? { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET } : undefined,
       allowedLogins: (env.ALLOWED_LOGINS ?? "").split(",").map((x) => x.trim()).filter(Boolean),
