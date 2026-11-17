@@ -4,7 +4,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { Db, Store } from "./portal";
+import type { Db, ProviderRow, Store } from "./portal";
 
 export function fileStore(dataDir: string): Store {
   mkdirSync(dataDir, { recursive: true });
@@ -23,6 +23,9 @@ export function fileStore(dataDir: string): Store {
     putUser: (u) => tx((db) => { db.users[u.id] = { ...u, created: db.users[u.id]?.created ?? u.created }; }),
     addKey: (k) => tx((db) => { db.keys.push(k); }),
     revokeKey: (id) => tx((db) => { const k = db.keys.find((x) => x.id === id); if (k) k.revoked = true; }),
+    async getProvider(userId) { await chain; return ((read() as Db & { providers?: Record<string, ProviderRow> }).providers ?? {})[userId] ?? null; },
+    putProvider: (row) => tx((db) => { ((db as Db & { providers?: Record<string, ProviderRow> }).providers ??= {})[row.userId] = row; }),
+    deleteProvider: (userId) => tx((db) => { delete (db as Db & { providers?: Record<string, ProviderRow> }).providers?.[userId]; }),
     recordUse: (keyId, day, use) => tx((db) => {
       const k = db.keys.find((x) => x.id === keyId);
       if (k) {
@@ -30,6 +33,7 @@ export function fileStore(dataDir: string): Store {
         const d = ((k.daily ??= {})[day] ??= { requests: 0, input: 0, output: 0 });
         d.requests++; d.input += use.input; d.output += use.output;
       }
+      if (use.own) return;
       (db.total ??= {})[day] = (db.total[day] ?? 0) + 1;
       if (use.neurons) {
         (db.neurons ??= {})[day] = Math.round((db.neurons[day] ?? 0) + use.neurons);

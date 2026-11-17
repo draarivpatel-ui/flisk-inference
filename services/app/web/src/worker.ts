@@ -79,6 +79,7 @@ function handle(req: Request, env: Env): Promise<Response> {
       overflow: env.OPENAI_API_KEY ? { dailyLimit: Number(env.OPENAI_DAILY_LIMIT) || 100,
         upstream: openaiUpstream({ key: env.OPENAI_API_KEY, model: env.OPENAI_MODEL || "gpt-4o-mini", publicModel: env.PUBLIC_MODEL,
           preludes: { [env.PUBLIC_MODEL]: parseModelfile(modelfile), ...(env.CHAT_MODEL ? { [env.CHAT_MODEL]: [] } : {}), ...(largeBase ? { [env.LARGE_MODEL as string]: [] } : {}) } }) } : undefined,
+      ownProviders: { publicModel: env.PUBLIC_MODEL, preludes: { [env.PUBLIC_MODEL]: parseModelfile(modelfile), ...(env.CHAT_MODEL ? { [env.CHAT_MODEL]: [] } : {}), ...(largeBase ? { [env.LARGE_MODEL as string]: [] } : {}) } },
       beta: true,
       asset: (path) => env.ASSETS.fetch(new Request(new URL(path, env.PUBLIC_URL))),
       indexHtml: async () => (await env.ASSETS.fetch(new Request(new URL("/index.html", env.PUBLIC_URL)))).text(),

@@ -367,7 +367,7 @@ function landing(){
   h("footer",{},"Flisk Inference · beta · ",h("a",{href:"https://github.com/flisk-sh/flisk-inference"},"open source (MIT)")))}
 
 /* ---------- console ---------- */
-const NAV=[["overview","Overview","home"],["usecases","Use cases","bulb"],["keys","API keys","key"],["usage","Usage","chart"],["integrations","Integrations","plug"],["docs","Docs","book"]];
+const NAV=[["overview","Overview","home"],["usecases","Use cases","bulb"],["keys","API keys","key"],["model","Your model","plug"],["usage","Usage","chart"],["integrations","Integrations","plug"],["docs","Docs","book"]];
 function shell(section,title,body){
  return h("div",{class:"app"},
   h("aside",{},h("a",{class:"brand",href:"/",html:"<img src=\"/icon.svg\" alt=\"\" aria-hidden=\"true\" width=\"26\" height=\"26\"><span>Inference</span>"}),
@@ -423,7 +423,8 @@ function docsView(){const row=(a,b)=>h("tr",{},h("td",{class:"mono",style:"white
   row("Model",M()+": Qwen2.5-Coder 32B on Cloudflare Workers AI, with Flisk's rules and examples in front of every request")))),
  h("h3",{style:"margin:0 0 10px;font-size:17px"},"Errors"),h("div",{class:"card",style:"padding:6px 10px"},h("table",{},h("tbody",{},...[["400","Streaming requested, another model name, or empty messages."],["401","Missing or revoked key."],["413","Request body over "+((cfg.limits&&cfg.limits.maxBodyKb)||64)+" KB."],["429","Over the per-key rate or the shared daily limit (see the limits on the Overview page)."],["502","The model call failed; retry."]].map(([a,b])=>row(a,b))))),
  h("p",{style:"margin-top:18px"},h("a",{class:"btn sm",href:"?section=integrations"},"Code for your SDK")))}
-const VIEWS={overview:["Overview",overview],usecases:["Use cases",async()=>useCasesView()],integrations:["Integrations",async()=>integrationsView()],keys:["API keys",keysView],usage:["Usage",usageView],docs:["Docs",async()=>docsView()]};
+async function modelView(){return h("div",{},h("p",{class:"sub"},"Run your calls on your own OpenAI, Claude or OpenRouter account instead of the free shared model. Paste the key once: it is stored encrypted and never shown again."),h("div",{class:"card"},h("iframe",{src:"/picker",title:"Choose your model",style:"width:100%;height:340px;border:0"})),h("p",{style:"color:var(--mut);margin-top:14px;font-size:13px"},"Other Flisk sites (chat, fleet, host) show this same picker and use your choice."))}
+const VIEWS={model:["Your model",modelView],overview:["Overview",overview],usecases:["Use cases",async()=>useCasesView()],integrations:["Integrations",async()=>integrationsView()],keys:["API keys",keysView],usage:["Usage",usageView],docs:["Docs",async()=>docsView()]};
 async function route(){
  const q=new URLSearchParams(location.search).get("section");const root=$("#root");root.textContent="";
  if(!q){root.append(landing());return}

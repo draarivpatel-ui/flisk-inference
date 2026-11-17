@@ -3,6 +3,10 @@
 // Storage, the model call and the page are passed in, so the same code runs under Bun (files + Ollama, src/index.ts)
 // and on Cloudflare (D1 + Workers AI, src/worker.ts).
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
+import { openaiUpstream } from "./openai";
+import { open, PROVIDERS, seal } from "./providers";
+import { pickerHtml, PICKER_JS } from "./picker";
+import type { ChatMessage } from "./workers-ai";
 
 export interface GithubUser { id: number | string; login: string; name?: string | null; avatar_url?: string }
 export interface PortalOptions {
@@ -20,6 +24,9 @@ export interface PortalOptions {
   // When the free allowance is used up (the daily request limit or the neuron budget), calls go here instead of getting a 429,
   // until the day's total reaches dailyLimit + `dailyLimit` here. This one is paid by the operator, so it has its own cap.
   overflow?: { upstream: (path: string, init: RequestInit) => Promise<Response>; dailyLimit: number };
+  // Lets a signed-in person run their own calls on their own provider account (OpenAI, Claude, OpenRouter): see providers.ts.
+  // `preludes` are the Flisk rules in front of each public model, the same as for the overflow upstream.
+  ownProviders?: { publicModel: string; preludes: Record<string, ChatMessage[]> };
   beta?: boolean;                     // the console says the service is in beta
   maxOutputTokens?: number;           // shown in the console; the upstream enforces it
   allowedModels?: string[];           // empty or missing: any model
@@ -39,7 +46,8 @@ interface Day { requests: number; input: number; output: number }
 export interface Key { daily?: Record<string, Day>; id: string; userId: string; name: string; hash: string; prefix: string; last4: string; created: string; lastUsed: string | null; requests: number; input: number; output: number; revoked: boolean }
 export interface Db { users: Record<string, User>; keys: Key[]; total?: Record<string, number>; neurons?: Record<string, number> }
 // What one successful model call adds. `neurons` is the Workers AI cost of the call (0 when there is no neuron budget).
-export interface Use { input: number; output: number; neurons: number }
+export interface Use { input: number; output: number; neurons: number; own?: boolean } // own: ran on the person's own provider account, so it does not count against the shared daily totals
+export interface ProviderRow { userId: string; provider: string; model: string; sealed: string; last4: string; updated: string }
 // Every write changes one thing and never replaces the whole state, so two requests that overlap cannot undo each other:
 // a revoke is `UPDATE keys SET revoked = 1`, and usage is added to (`n = n + ?`), never read, changed and written back.
 export interface Store {
@@ -48,6 +56,9 @@ export interface Store {
   putUser(user: User): Promise<void>;                         // insert, or update login/name/avatar and keep `created`
   addKey(key: Key): Promise<void>;
   revokeKey(id: string): Promise<void>;                       // sets revoked and nothing else
+  getProvider(userId: string): Promise<ProviderRow | null>;
+  putProvider(row: ProviderRow): Promise<void>;
+  deleteProvider(userId: string): Promise<void>;
   recordUse(keyId: string, day: string, use: Use): Promise<void>; // adds one request and the tokens to the key, its day and the day's totals
 }
 
@@ -169,6 +180,12 @@ export function createPortal(opts: PortalOptions) {
       return bodyFor(new Response(`<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>${opts.publicUrl}/</loc></url></urlset>\n`, { headers: { "content-type": "application/xml; charset=utf-8" } }));
     if (read && (path === "/" || path === "/index.html"))
       return bodyFor(new Response(await opts.indexHtml(), { headers: { "content-type": "text/html; charset=utf-8" } }));
+    // The model picker: a small page that other *.flisk.si sites put in an iframe (frame-ancestors below), and the script that does it.
+    if (read && opts.ownProviders && path === "/picker")
+      return bodyFor(new Response(pickerHtml(), { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store",
+        "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; connect-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors https://*.flisk.si https://flisk.si" } }));
+    if (read && opts.ownProviders && path === "/picker.js")
+      return bodyFor(new Response(PICKER_JS(opts.publicUrl), { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=300", "access-control-allow-origin": "*" } }));
     if (req.method === "GET" && path === "/api/status") {
       if (!statusCache || Date.now() - statusCache.at > 15_000) {
         let ok = false;
@@ -235,6 +252,29 @@ export function createPortal(opts: PortalOptions) {
         await opts.store.revokeKey(k.id);
         return json(200, { ok: true });
       }
+      if (path === "/api/provider" && opts.ownProviders) {
+        const row = await opts.store.getProvider(user.id);
+        if (req.method === "GET") return json(200, { providers: Object.fromEntries(Object.entries(PROVIDERS).map(([id, p]) => [id, { label: p.label, defaultModel: p.defaultModel, keyHint: p.keyHint }])), current: row ? { provider: row.provider, model: row.model, last4: row.last4 } : null });
+        if (req.method === "DELETE") { await opts.store.deleteProvider(user.id); return json(200, { ok: true }); }
+        if (req.method === "PUT") {
+          const body = await readJson(req);
+          const provider = String(body.provider ?? "");
+          if (provider === "wolf") { await opts.store.deleteProvider(user.id); return json(200, { ok: true, current: null }); }
+          const def = Object.hasOwn(PROVIDERS, provider) ? PROVIDERS[provider] : undefined;
+          if (!def) return json(400, { error: "unknown provider" });
+          const model = String(body.model || def.defaultModel).trim();
+          if (!/^[\w./:@+-]{1,80}$/.test(model)) return json(400, { error: "that model name is not valid" });
+          const keyText = typeof body.key === "string" ? body.key.trim() : "";
+          let sealed: string, last4: string;
+          if (keyText) {
+            if (keyText.length < 12 || keyText.length > 300 || /\s/.test(keyText)) return json(400, { error: "that does not look like an API key" });
+            sealed = seal(secret, keyText); last4 = keyText.slice(-4);
+          } else if (row && row.provider === provider) { sealed = row.sealed; last4 = row.last4; } // same provider, new model: keep the saved key
+          else return json(400, { error: `paste your ${def.label} API key` });
+          await opts.store.putProvider({ userId: user.id, provider, model, sealed, last4, updated: new Date().toISOString() });
+          return json(200, { ok: true, current: { provider, model, last4 } }); // the key itself is never sent back
+        }
+      }
       if (path === "/api/usage") {
         const keys = mine.map((k) => ({ name: k.name, revoked: k.revoked, requests: k.requests, input: k.input, output: k.output, lastUsed: k.lastUsed }));
         const sum = (f: "requests" | "input" | "output") => keys.reduce((n, k) => n + k[f], 0);
@@ -265,6 +305,24 @@ export function createPortal(opts: PortalOptions) {
       if (recent.length >= ratePerMinute) return json(429, { error: { message: `rate limit: ${ratePerMinute} requests per minute` } });
       rate.set(key.id, [...recent, now]);
       const today = new Date().toISOString().slice(0, 10);
+      // A person who saved their own provider runs on that account: it is theirs to pay for, so the shared daily limit and the
+      // Workers AI budget do not apply, and the call is not counted in them.
+      const saved = opts.ownProviders && req.method === "POST" ? await opts.store.getProvider(key.userId) : null;
+      const ownKey = saved ? open(secret, saved.sealed) : null;
+      if (saved && ownKey && opts.ownProviders) {
+        const parsed = await readJson(req);
+        if (parsed.stream) return json(400, { error: { message: "streaming is not supported" } });
+        if (opts.allowedModels?.length && !opts.allowedModels.includes(String(parsed.model))) return json(400, { error: { message: `model must be one of: ${opts.allowedModels.join(", ")}` } });
+        const def = PROVIDERS[saved.provider];
+        if (!def) return json(502, { error: { message: "your saved provider is no longer offered; pick another in the console" } });
+        const run = openaiUpstream({ key: ownKey, model: saved.model, publicModel: opts.ownProviders.publicModel, preludes: opts.ownProviders.preludes, url: def.url, tokenParam: def.tokenParam, maxTokens: opts.maxOutputTokens ?? 1024, fetchImpl: doFetch });
+        const res = await run(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(parsed), signal: AbortSignal.timeout(120_000) });
+        const out = await res.text();
+        let u: { prompt_tokens?: number; completion_tokens?: number } | undefined;
+        try { u = (JSON.parse(out) as { usage?: typeof u }).usage; } catch { /* count the request only */ }
+        if (res.ok) await opts.store.recordUse(key.id, today, { input: u?.prompt_tokens ?? 0, output: u?.completion_tokens ?? 0, neurons: 0, own: true });
+        return new Response(out, { status: res.status, headers: { "content-type": "application/json" } });
+      }
       const sponsor = opts.sponsorUrl ? `. Sponsors pay for these free calls: ${opts.sponsorUrl}` : "";
       const canSpill = !!opts.overflow && (db.total?.[today] ?? 0) < (opts.dailyLimit ?? 0) + opts.overflow.dailyLimit;
       let spill = false; // this call runs on the overflow upstream, not on the free allowance
