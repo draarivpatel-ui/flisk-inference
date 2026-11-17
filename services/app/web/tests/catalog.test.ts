@@ -18,3 +18,9 @@ test("catalog is public JSON any Flisk site can read", async () => {
   const body = (await res.json()) as { data: unknown[] };
   expect(body.data.length).toBe(CATALOG.length);
 });
+
+test("GPT-6.2 Astra is listed as coming soon, so chat labels it", () => {
+  const astra = CATALOG.find((m) => m.id === "gpt-6-2-astra");
+  expect(astra).toMatchObject({ key: "openai", model: "gpt-6.2-astra", soon: true, free: false });
+  expect(CATALOG.filter((m) => m.soon).map((m) => m.id)).toEqual(["gpt-6-2-astra"]);
+});
