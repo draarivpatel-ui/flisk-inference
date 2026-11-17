@@ -1,5 +1,7 @@
 # inference.flisk.si on Cloudflare: the portal as a Worker, users and keys in D1, the model on Workers AI.
 # Deploy by hand from this folder: bunx wrangler@4 deploy. Secrets: GITHUB_CLIENT_ID, GITHUB_CLIENT_SECRET, SESSION_SECRET.
+# Optional overflow on OpenAI when the free allowance is used up: secret OPENAI_API_KEY (bunx wrangler@4 secret put OPENAI_API_KEY),
+# vars OPENAI_MODEL (default gpt-4o-mini) and OPENAI_DAILY_LIMIT (extra requests a day, default 100). Without the secret nothing changes.
 name = "flisk-inference"
 main = "src/worker.ts"
 compatibility_date = "2026-11-01"

@@ -320,6 +320,23 @@ describe("beta limits", () => {
     expect(((await over.json()) as { error: { message: string } }).error.message).toContain("daily limit");
     expect(upstreamCalls).toHaveLength(2);
   });
+  it("runs on the overflow upstream past the daily limit or the neuron budget, up to its own cap", async () => {
+    const spilled: string[] = [];
+    const overflow = { dailyLimit: 2, upstream: async () => { spilled.push("x"); return Response.json({ choices: [], usage: { prompt_tokens: 1, completion_tokens: 1 } }); } };
+    const p = make({ dailyLimit: 1, overflow });
+    const { key } = await newKey(p, await login(p));
+    expect((await p.fetch(chat(key))).status).toBe(200); // free allowance
+    expect((await p.fetch(chat(key))).status).toBe(200); // overflow 1
+    expect((await p.fetch(chat(key))).status).toBe(200); // overflow 2
+    expect((await p.fetch(chat(key))).status).toBe(429); // overflow cap reached
+    expect(spilled).toHaveLength(2);
+    expect(upstreamCalls).toHaveLength(1);
+    spilled.length = 0;
+    const b = make({ dailyNeurons: { budget: 1, perInputToken: 2, perOutputToken: 4 }, overflow: { ...overflow, dailyLimit: 10 } }); // the store is shared, so earlier calls count
+    const k = await newKey(b, await login(b));
+    expect((await b.fetch(chat(k.key))).status).toBe(200);
+    expect(spilled).toHaveLength(1);
+  });
   it("adds the sponsor link to both daily-limit errors, and to the config, only when one is set", async () => {
     const p = make({ dailyLimit: 1, sponsorUrl: "https://example.test/sponsor" });
     const { key } = await newKey(p, await login(p));

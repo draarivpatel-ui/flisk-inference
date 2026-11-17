@@ -2,6 +2,7 @@
 import modelfile from "../../../../deploy/Modelfile";
 import { type D1, d1Store } from "./d1-store";
 import { catalogResponse } from "./catalog";
+import { openaiUpstream } from "./openai";
 import { createPortal } from "./portal";
 import { withSecurityHeaders } from "./security-headers";
 import { callEvents, sendTrace, type TraceEnv } from "./trace";
@@ -11,6 +12,7 @@ interface Env {
   DB: D1; AI: AiBinding; ASSETS: { fetch(req: Request): Promise<Response> };
   PUBLIC_URL: string; MODEL: string; PUBLIC_MODEL: string; CHAT_MODEL?: string; CHAT_BASE_MODEL?: string; LARGE_MODEL?: string; LARGE_BASE_MODEL?: string; DAILY_LIMIT?: string; SPONSOR_URL?: string; DAILY_NEURONS?: string; PORTAL_NAME?: string; ALLOWED_LOGINS?: string;
   GITHUB_CLIENT_ID?: string; GITHUB_CLIENT_SECRET?: string; SESSION_SECRET: string;
+  OPENAI_API_KEY?: string; OPENAI_MODEL?: string; OPENAI_DAILY_LIMIT?: string; // overflow on OpenAI when the free allowance is used up
 }
 type Bindings = Env & TraceEnv;
 
@@ -74,6 +76,9 @@ function handle(req: Request, env: Env): Promise<Response> {
       dailyNeurons: Number(env.DAILY_NEURONS) ? { budget: Number(env.DAILY_NEURONS), perInputToken, perOutputToken,
         models: { ...(env.CHAT_MODEL && chatBase ? { [env.CHAT_MODEL]: { perInputToken: chatIn, perOutputToken: chatOut, maxOutputTokens: CHAT_MAX_TOKENS } } : {}),
           ...(largeBase ? { [env.LARGE_MODEL as string]: { perInputToken: largeIn, perOutputToken: largeOut, maxOutputTokens: CHAT_MAX_TOKENS } } : {}) } } : undefined,
+      overflow: env.OPENAI_API_KEY ? { dailyLimit: Number(env.OPENAI_DAILY_LIMIT) || 100,
+        upstream: openaiUpstream({ key: env.OPENAI_API_KEY, model: env.OPENAI_MODEL || "gpt-4o-mini", publicModel: env.PUBLIC_MODEL,
+          preludes: { [env.PUBLIC_MODEL]: parseModelfile(modelfile), ...(env.CHAT_MODEL ? { [env.CHAT_MODEL]: [] } : {}), ...(largeBase ? { [env.LARGE_MODEL as string]: [] } : {}) } }) } : undefined,
       beta: true,
       asset: (path) => env.ASSETS.fetch(new Request(new URL(path, env.PUBLIC_URL))),
       indexHtml: async () => (await env.ASSETS.fetch(new Request(new URL("/index.html", env.PUBLIC_URL)))).text(),
