@@ -1,5 +1,6 @@
 // Serves the portal's /v1 API from Cloudflare Workers AI: the Flisk rules and examples from deploy/Modelfile go in
 // front of every conversation, and the answer comes back in the OpenAI chat-completions shape.
+import { openAiChunks, SSE_HEADERS, wholeAsChunks } from "./sse";
 export interface ChatMessage { role: string; content: string }
 export interface AiBinding { run(model: string, input: Record<string, unknown>): Promise<unknown> }
 
@@ -30,7 +31,7 @@ export function workersAiUpstream(opts: { ai: AiBinding; model: string; publicMo
   return async (path: string, init: RequestInit): Promise<Response> => {
     if (path === "/v1/models") return Response.json({ object: "list", data: Object.keys(preludes).map((id) => ({ id, object: "model", owned_by: "flisk" })) });
     if (path !== "/v1/chat/completions" || init.method !== "POST") return Response.json({ error: { message: "not found" } }, { status: 404 });
-    const body = JSON.parse(String(init.body ?? "{}")) as { model?: string; messages?: ChatMessage[]; max_tokens?: number; reasoning_effort?: string };
+    const body = JSON.parse(String(init.body ?? "{}")) as { model?: string; messages?: ChatMessage[]; max_tokens?: number; reasoning_effort?: string; stream?: boolean };
     const publicModel = body.model && Object.hasOwn(preludes, body.model) ? body.model : opts.publicModel;
     const messages = (body.messages ?? []).filter((m) => m && typeof m.content === "string").map((m) => ({ role: String(m.role), content: m.content }));
     if (!messages.length) return Response.json({ error: { message: "messages must not be empty", type: "invalid_request_error" } }, { status: 400 });
@@ -39,9 +40,20 @@ export function workersAiUpstream(opts: { ai: AiBinding; model: string; publicMo
     // Only a model with a default effort takes one; a caller may ask for low or medium, never the dear xhigh.
     const effort = over.reasoningEffort ? (body.reasoning_effort === "medium" ? "medium" : over.reasoningEffort) : undefined;
     const all = [...preludes[publicModel], ...messages];
+    const input = { messages: over.systemSuffix ? withSystemSuffix(all, over.systemSuffix) : all, max_tokens: Math.min(Number(body.max_tokens) || maxTokens, maxTokens), temperature: 0, ...(effort ? { reasoning_effort: effort } : {}) };
+    // Words go out as they are made. A thinking model's notes must be cut out of the whole text, so it is sent in one piece.
+    if (body.stream && !effort) {
+      try {
+        const live = (await opts.ai.run(over.model ?? opts.model, { ...input, stream: true })) as ReadableStream<Uint8Array>;
+        const out = openAiChunks(live, publicModel);
+        return new Response(out, { headers: SSE_HEADERS });
+      } catch (e) {
+        return Response.json({ error: { message: `model call failed: ${(e as Error).message}`, type: "api_error" } }, { status: 502 });
+      }
+    }
     let res: { response?: unknown; usage?: { prompt_tokens?: number; completion_tokens?: number }; choices?: Array<{ message?: { content?: string } }> };
     try {
-      res = (await opts.ai.run(over.model ?? opts.model, { messages: over.systemSuffix ? withSystemSuffix(all, over.systemSuffix) : all, max_tokens: Math.min(Number(body.max_tokens) || maxTokens, maxTokens), temperature: 0, ...(effort ? { reasoning_effort: effort } : {}) })) as typeof res;
+      res = (await opts.ai.run(over.model ?? opts.model, input)) as typeof res;
     } catch (e) {
       return Response.json({ error: { message: `model call failed: ${(e as Error).message}`, type: "api_error" } }, { status: 502 });
     }
@@ -50,10 +62,11 @@ export function workersAiUpstream(opts: { ai: AiBinding; model: string; publicMo
     // A thinking model's notes are not part of the answer.
     const content = typeof raw === "string" ? raw.replace(/<think>[\s\S]*?<\/think>/g, "").trim() : JSON.stringify(raw, null, 2);
     const usage = { prompt_tokens: res.usage?.prompt_tokens ?? 0, completion_tokens: res.usage?.completion_tokens ?? 0 };
-    return Response.json({
+    const done = {
       id: `chatcmpl-${crypto.randomUUID()}`, object: "chat.completion", created: Math.floor(Date.now() / 1000), model: publicModel,
       choices: [{ index: 0, message: { role: "assistant", content }, finish_reason: "stop" }],
       usage: { ...usage, total_tokens: usage.prompt_tokens + usage.completion_tokens },
-    });
+    };
+    return body.stream ? new Response(wholeAsChunks(done), { headers: SSE_HEADERS }) : Response.json(done);
   };
 }

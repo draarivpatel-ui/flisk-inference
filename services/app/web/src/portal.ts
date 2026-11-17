@@ -4,6 +4,7 @@
 // and on Cloudflare (D1 + Workers AI, src/worker.ts).
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { openaiUpstream } from "./openai";
+import { meterStream, SSE_HEADERS, wholeAsChunks } from "./sse";
 import { open, PROVIDERS, seal } from "./providers";
 import { pickerHtml, PICKER_JS } from "./picker";
 import type { ChatMessage } from "./workers-ai";
@@ -311,7 +312,7 @@ export function createPortal(opts: PortalOptions) {
       const ownKey = saved ? open(secret, saved.sealed) : null;
       if (saved && ownKey && opts.ownProviders) {
         const parsed = await readJson(req);
-        if (parsed.stream) return json(400, { error: { message: "streaming is not supported" } });
+        const wantsStream = parsed.stream === true;
         if (opts.allowedModels?.length && !opts.allowedModels.includes(String(parsed.model))) return json(400, { error: { message: `model must be one of: ${opts.allowedModels.join(", ")}` } });
         const def = PROVIDERS[saved.provider];
         if (!def) return json(502, { error: { message: "your saved provider is no longer offered; pick another in the console" } });
@@ -321,6 +322,7 @@ export function createPortal(opts: PortalOptions) {
         let u: { prompt_tokens?: number; completion_tokens?: number } | undefined;
         try { u = (JSON.parse(out) as { usage?: typeof u }).usage; } catch { /* count the request only */ }
         if (res.ok) await opts.store.recordUse(key.id, today, { input: u?.prompt_tokens ?? 0, output: u?.completion_tokens ?? 0, neurons: 0, own: true });
+        if (wantsStream && res.ok) { try { return new Response(wholeAsChunks(JSON.parse(out)), { headers: SSE_HEADERS }); } catch { /* send it as it came */ } }
         return new Response(out, { status: res.status, headers: { "content-type": "application/json" } });
       }
       const sponsor = opts.sponsorUrl ? `. Sponsors pay for these free calls: ${opts.sponsorUrl}` : "";
@@ -332,10 +334,11 @@ export function createPortal(opts: PortalOptions) {
       }
 
       let body: string | undefined;
+      let wantsStream = false;
       let price = opts.dailyNeurons;
       if (req.method === "POST") {
         const parsed = await readJson(req);
-        if (parsed.stream) return json(400, { error: { message: "streaming is not supported" } });
+        wantsStream = parsed.stream === true;
         if (opts.allowedModels?.length && !opts.allowedModels.includes(String(parsed.model))) return json(400, { error: { message: `model must be one of: ${opts.allowedModels.join(", ")}` } });
         body = JSON.stringify(parsed);
         if (opts.dailyNeurons && !spill) {
@@ -354,14 +357,20 @@ export function createPortal(opts: PortalOptions) {
       }
       if (spill) price = undefined; // the overflow upstream costs no Workers AI neurons
       const up = await (spill && opts.overflow ? opts.overflow.upstream : upstream)(path, { method: req.method, headers: { "content-type": "application/json" }, body, signal: AbortSignal.timeout(120_000) });
+      const spent = (u: { prompt_tokens?: number; completion_tokens?: number } | undefined) => (price ? (u?.prompt_tokens ?? 0) * price.perInputToken + (u?.completion_tokens ?? 0) * price.perOutputToken : 0);
+      if (up.ok && up.body && (up.headers.get("content-type") ?? "").includes("text/event-stream")) {
+        // Words are passed on as they come; the call is counted when the stream ends.
+        const count = async (u: { prompt_tokens?: number; completion_tokens?: number }) => { await opts.store.recordUse(key.id, today, { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0, neurons: spent(u) }); };
+        return new Response(meterStream(up.body, count), { headers: SSE_HEADERS });
+      }
       const text = await up.text();
       let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
       try { usage = (JSON.parse(text) as { usage?: typeof usage }).usage; } catch { /* not JSON: count the request only */ }
       if (up.ok) {
         // Add this call to the counters. Nothing is read first and nothing is written back whole, so a key revoked or
         // created while the (slow) model call ran is left alone.
-        const spent = price ? (usage?.prompt_tokens ?? 0) * price.perInputToken + (usage?.completion_tokens ?? 0) * price.perOutputToken : 0;
-        await opts.store.recordUse(key.id, today, { input: usage?.prompt_tokens ?? 0, output: usage?.completion_tokens ?? 0, neurons: spent });
+        await opts.store.recordUse(key.id, today, { input: usage?.prompt_tokens ?? 0, output: usage?.completion_tokens ?? 0, neurons: spent(usage) });
+        if (wantsStream) { try { return new Response(wholeAsChunks(JSON.parse(text)), { headers: SSE_HEADERS }); } catch { /* send it as it came */ } }
       }
       return new Response(text, { status: up.status, headers: { "content-type": up.headers.get("content-type") ?? "application/json" } });
     }

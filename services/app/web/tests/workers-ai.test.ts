@@ -105,3 +105,35 @@ describe("flisk-wolf-large on Inkling 2 Small", () => {
     expect((seen[0].input.messages as Array<{ content: string }>).some((m) => m.content === "rules")).toBe(false);
   });
 });
+
+describe("workersAiUpstream streaming", () => {
+  const sse = (parts: string[], usage?: object) => new ReadableStream<Uint8Array>({
+    start(c) {
+      const e = new TextEncoder();
+      for (const p of parts) c.enqueue(e.encode(`data: ${JSON.stringify({ response: p })}\n\n`));
+      if (usage) c.enqueue(e.encode(`data: ${JSON.stringify({ response: "", usage })}\n\n`));
+      c.enqueue(e.encode("data: [DONE]\n\n"));
+      c.close();
+    },
+  });
+  it("sends each word as an OpenAI chunk, then the usage and [DONE]", async () => {
+    const seen: Array<Record<string, unknown>> = [];
+    const up = workersAiUpstream({ ai: { run: async (_m, input) => { seen.push(input); return sse(["The sea", " is salty"], { prompt_tokens: 5, completion_tokens: 4 }); } }, model: "m", publicModel: "flisk-wolf", prelude: [] });
+    const res = await up("/v1/chat/completions", post({ model: "flisk-wolf", stream: true, messages: [{ role: "user", content: "hi" }] }));
+    expect(res.headers.get("content-type")).toContain("text/event-stream");
+    expect(seen[0].stream).toBe(true);
+    const text = await res.text();
+    const events = text.split("\n\n").filter((l) => l.startsWith("data: ") && !l.includes("[DONE]")).map((l) => JSON.parse(l.slice(6)));
+    expect(events.map((e) => e.choices[0]?.delta?.content).filter((c) => c)).toEqual(["The sea", " is salty"]);
+    expect(events.some((e) => e.choices[0]?.finish_reason === "stop")).toBe(true);
+    expect(events.at(-1).usage).toEqual({ prompt_tokens: 5, completion_tokens: 4, total_tokens: 9 });
+    expect(text.trim().endsWith("data: [DONE]")).toBe(true);
+  });
+  it("sends a thinking model's answer whole, with its notes cut out", async () => {
+    const up = workersAiUpstream({ ai: { run: async () => ({ response: "<think>x</think>done", usage: {} }) }, model: "m", publicModel: "p", prelude: [], overrides: { p: { reasoningEffort: "low" } } });
+    const res = await up("/v1/chat/completions", post({ model: "p", stream: true, messages: [{ role: "user", content: "hi" }] }));
+    const text = await res.text();
+    expect(text).toContain('"content":"done"');
+    expect(text).not.toContain("think");
+  });
+});
