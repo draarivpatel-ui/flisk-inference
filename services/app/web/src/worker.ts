@@ -9,7 +9,7 @@ import { type AiBinding, parseModelfile, workersAiUpstream } from "./workers-ai"
 
 interface Env {
   DB: D1; AI: AiBinding; ASSETS: { fetch(req: Request): Promise<Response> };
-  PUBLIC_URL: string; MODEL: string; PUBLIC_MODEL: string; CHAT_MODEL?: string; CHAT_BASE_MODEL?: string; DAILY_LIMIT?: string; SPONSOR_URL?: string; DAILY_NEURONS?: string; PORTAL_NAME?: string; ALLOWED_LOGINS?: string;
+  PUBLIC_URL: string; MODEL: string; PUBLIC_MODEL: string; CHAT_MODEL?: string; CHAT_BASE_MODEL?: string; LARGE_MODEL?: string; LARGE_BASE_MODEL?: string; DAILY_LIMIT?: string; SPONSOR_URL?: string; DAILY_NEURONS?: string; PORTAL_NAME?: string; ALLOWED_LOGINS?: string;
   GITHUB_CLIENT_ID?: string; GITHUB_CLIENT_SECRET?: string; SESSION_SECRET: string;
 }
 type Bindings = Env & TraceEnv;
@@ -20,6 +20,8 @@ const RATES: Record<string, [number, number]> = {
   "@cf/qwen/qwen2.5-coder-32b-instruct": [0.06, 0.0909],
   "@cf/qwen/qwen3-30b-a3b-fp8": [0.004625, 0.030475],
   "@cf/qwen/qwen3.8-27b": [0.040909, 0.290909],
+  // $0.30 and $1.00 per million tokens at $0.011 per 1,000 neurons. Paid Workers AI only: on the free plan a call fails.
+  "@cf/thinkingmachines/inkling-2-small": [0.027273, 0.090909],
 };
 const DEAREST: [number, number] = [0.06, 0.0909];
 // The chat model's answers may be longer: a whole web page does not fit in 1,024 tokens, and its output is cheap.
@@ -54,19 +56,24 @@ function handle(req: Request, env: Env): Promise<Response> {
     // The chat model on its own base model: Qwen3 answers at once with "/no_think" (its thinking would use up the answer).
     const chatBase = env.CHAT_MODEL && env.CHAT_BASE_MODEL ? env.CHAT_BASE_MODEL : undefined;
     const [chatIn, chatOut] = chatBase ? (RATES[chatBase] ?? DEAREST) : DEAREST;
+    // Flisk Wolf Large: Inkling 2 Small (594B mixture of experts) behind the same API, no Flisk config rules, reasoning at low effort.
+    const largeBase = env.LARGE_MODEL && env.LARGE_BASE_MODEL ? env.LARGE_BASE_MODEL : undefined;
+    const [largeIn, largeOut] = largeBase ? (RATES[largeBase] ?? DEAREST) : DEAREST;
     portal ??= createPortal({
       name: env.PORTAL_NAME ?? "Flisk Inference",
       publicUrl: env.PUBLIC_URL,
       store: d1Store(env.DB, () => env.SESSION_SECRET),
-      upstream: workersAiUpstream({ ai: env.AI, model: env.MODEL, publicModel: env.PUBLIC_MODEL, prelude: parseModelfile(modelfile), others: env.CHAT_MODEL ? { [env.CHAT_MODEL]: [] } : {},
-        overrides: env.CHAT_MODEL && chatBase ? { [env.CHAT_MODEL]: { model: chatBase, systemSuffix: chatBase.includes("qwen3-30b") ? "\n/no_think" : undefined, reasoningEffort: chatBase.includes("qwen3.8") ? "low" : undefined, maxTokens: CHAT_MAX_TOKENS } } : {} }),
-      allowedModels: [env.PUBLIC_MODEL, ...(env.CHAT_MODEL ? [env.CHAT_MODEL] : [])],
+      upstream: workersAiUpstream({ ai: env.AI, model: env.MODEL, publicModel: env.PUBLIC_MODEL, prelude: parseModelfile(modelfile), others: { ...(env.CHAT_MODEL ? { [env.CHAT_MODEL]: [] } : {}), ...(largeBase ? { [env.LARGE_MODEL as string]: [] } : {}) },
+        overrides: { ...(env.CHAT_MODEL && chatBase ? { [env.CHAT_MODEL]: { model: chatBase, systemSuffix: chatBase.includes("qwen3-30b") ? "\n/no_think" : undefined, reasoningEffort: chatBase.includes("qwen3.8") ? "low" : undefined, maxTokens: CHAT_MAX_TOKENS } } : {}),
+          ...(largeBase ? { [env.LARGE_MODEL as string]: { model: largeBase, reasoningEffort: "low", maxTokens: CHAT_MAX_TOKENS } } : {}) } }),
+      allowedModels: [env.PUBLIC_MODEL, ...(env.CHAT_MODEL ? [env.CHAT_MODEL] : []), ...(largeBase ? [env.LARGE_MODEL as string] : [])],
       github: env.GITHUB_CLIENT_ID && env.GITHUB_CLIENT_SECRET ? { clientId: env.GITHUB_CLIENT_ID, clientSecret: env.GITHUB_CLIENT_SECRET } : undefined,
       allowedLogins: (env.ALLOWED_LOGINS ?? "").split(",").map((x) => x.trim()).filter(Boolean),
       dailyLimit: Number(env.DAILY_LIMIT) || undefined,
       sponsorUrl: env.SPONSOR_URL || undefined,
       dailyNeurons: Number(env.DAILY_NEURONS) ? { budget: Number(env.DAILY_NEURONS), perInputToken, perOutputToken,
-        models: env.CHAT_MODEL && chatBase ? { [env.CHAT_MODEL]: { perInputToken: chatIn, perOutputToken: chatOut, maxOutputTokens: CHAT_MAX_TOKENS } } : {} } : undefined,
+        models: { ...(env.CHAT_MODEL && chatBase ? { [env.CHAT_MODEL]: { perInputToken: chatIn, perOutputToken: chatOut, maxOutputTokens: CHAT_MAX_TOKENS } } : {}),
+          ...(largeBase ? { [env.LARGE_MODEL as string]: { perInputToken: largeIn, perOutputToken: largeOut, maxOutputTokens: CHAT_MAX_TOKENS } } : {}) } } : undefined,
       beta: true,
       asset: (path) => env.ASSETS.fetch(new Request(new URL(path, env.PUBLIC_URL))),
       indexHtml: async () => (await env.ASSETS.fetch(new Request(new URL("/index.html", env.PUBLIC_URL)))).text(),
