@@ -4,6 +4,7 @@ import { type D1, d1Store } from "./d1-store";
 import { catalogResponse } from "./catalog";
 import { createPortal } from "./portal";
 import { withSecurityHeaders } from "./security-headers";
+import { callEvents, sendTrace, type TraceEnv } from "./trace";
 import { type AiBinding, parseModelfile, workersAiUpstream } from "./workers-ai";
 
 interface Env {
@@ -11,6 +12,7 @@ interface Env {
   PUBLIC_URL: string; MODEL: string; PUBLIC_MODEL: string; CHAT_MODEL?: string; CHAT_BASE_MODEL?: string; DAILY_LIMIT?: string; SPONSOR_URL?: string; DAILY_NEURONS?: string; PORTAL_NAME?: string; ALLOWED_LOGINS?: string;
   GITHUB_CLIENT_ID?: string; GITHUB_CLIENT_SECRET?: string; SESSION_SECRET: string;
 }
+type Bindings = Env & TraceEnv;
 
 // Workers AI neurons per token, [in, out], from Cloudflare's price list (neurons per million tokens / 1,000,000).
 // A base model missing here is counted at the dearest rate, so a new model can never overspend the allowance unseen.
@@ -25,8 +27,22 @@ const CHAT_MAX_TOKENS = 2048;
 
 let portal: ReturnType<typeof createPortal> | undefined;
 export default {
-  async fetch(req: Request, env: Env): Promise<Response> {
-    return withSecurityHeaders(await handle(req, env));
+  async fetch(req: Request, env: Bindings, ctx?: { waitUntil(p: Promise<unknown>): void }): Promise<Response> {
+    const started = Date.now();
+    let res: Response;
+    try {
+      res = await handle(req, env);
+    } catch (e) {
+      const t = sendTrace(env, { route: new URL(req.url).pathname, kind: "error", why: `the Worker threw: ${String((e as Error)?.message ?? e).slice(0, 150)}`, ms: Date.now() - started });
+      if (ctx) ctx.waitUntil(t); else await t;
+      throw e;
+    }
+    // A normal call writes nothing; a refused, failed or slow model call is one row (status and time only, never the prompt or answer).
+    for (const event of callEvents(new URL(req.url).pathname, req.method, res.status, Date.now() - started)) {
+      const t = sendTrace(env, event);
+      if (ctx) ctx.waitUntil(t); else await t;
+    }
+    return withSecurityHeaders(res);
   },
 };
 
