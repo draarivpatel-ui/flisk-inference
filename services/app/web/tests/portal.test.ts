@@ -472,7 +472,7 @@ describe("site icons", () => {
   });
   it("names the product first in the homepage title and share tags", async () => {
     const html = await (await make().fetch(req("/"))).text();
-    const title = "Flisk Inference: plain English in, valid service.json out";
+    const title = "Flisk Inference: a free AI model API, no card";
     expect(html).toContain(`<title>${title}</title>`);
     expect(html).toContain(`<meta property="og:title" content="${title}">`);
     expect(html).toContain(`<meta name="twitter:title" content="${title}">`);
