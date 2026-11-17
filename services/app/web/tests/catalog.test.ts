@@ -24,5 +24,3 @@ test("GPT-6.2 Astra and Sol are released OpenAI models, no longer coming soon", 
   expect(CATALOG.find((m) => m.id === "gpt-6-2-sol")).toMatchObject({ key: "openai", model: "gpt-6.2-sol", free: false });
   expect(CATALOG.filter((m) => m.soon)).toEqual([]);
 });
-  expect(CATALOG.filter((m) => m.soon).map((m) => m.id)).toEqual(["gpt-6-2-astra"]);
-});
