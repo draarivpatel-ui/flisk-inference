@@ -8,6 +8,7 @@ import { meterStream, SSE_HEADERS, wholeAsChunks } from "./sse";
 import { open, PROVIDERS, seal } from "./providers";
 import { pickerHtml, PICKER_JS } from "./picker";
 import { anthropicError, messageAsEvents, type agentUpstream } from "./anthropic";
+import { COGITO_HEADERS, cogitoFrames, cogitoLevel, wantsCogito } from "./cogito";
 import type { ChatMessage } from "./workers-ai";
 
 export interface GithubUser { id: number | string; login: string; name?: string | null; avatar_url?: string }
@@ -314,6 +315,9 @@ export function createPortal(opts: PortalOptions) {
 
     // ---- /v1/*: API-key auth, metered, forwarded to the upstream
     if (path.startsWith("/v1/")) {
+      // Opt-in: a POST that accepts cogito frames gets them (stream is forced on, the SSE events are re-framed). Everyone else is unchanged.
+      const co = req.method === "POST" && path === "/v1/chat/completions" && wantsCogito(req);
+      const sendStream = (s: ReadableStream<Uint8Array>) => co ? new Response(cogitoFrames(s, cogitoLevel(req)), { headers: COGITO_HEADERS }) : new Response(s, { headers: SSE_HEADERS });
       const db = await opts.store.load();
       const m = /^Bearer (.+)$/.exec(req.headers.get("authorization") ?? "") ?? (opts.agent ? /^(.+)$/.exec(req.headers.get("x-api-key") ?? "") : null);
       const key = m ? db.keys.find((k) => !k.revoked && k.hash === sha(m[1])) : undefined;
@@ -348,6 +352,7 @@ export function createPortal(opts: PortalOptions) {
       const ownKey = saved ? open(secret, saved.sealed) : null;
       if (saved && ownKey && opts.ownProviders) {
         const parsed = await readJson(req);
+        if (co) parsed.stream = true;
         const wantsStream = parsed.stream === true;
         if (opts.allowedModels?.length && !opts.allowedModels.includes(String(parsed.model))) return json(400, { error: { message: `model must be one of: ${opts.allowedModels.join(", ")}` } });
         const def = PROVIDERS[saved.provider];
@@ -358,7 +363,7 @@ export function createPortal(opts: PortalOptions) {
         let u: { prompt_tokens?: number; completion_tokens?: number } | undefined;
         try { u = (JSON.parse(out) as { usage?: typeof u }).usage; } catch { /* count the request only */ }
         if (res.ok) await opts.store.recordUse(key.id, today, { input: u?.prompt_tokens ?? 0, output: u?.completion_tokens ?? 0, neurons: 0, own: true });
-        if (wantsStream && res.ok) { try { return new Response(wholeAsChunks(JSON.parse(out)), { headers: SSE_HEADERS }); } catch { /* send it as it came */ } }
+        if (wantsStream && res.ok) { try { return sendStream(wholeAsChunks(JSON.parse(out))); } catch { /* send it as it came */ } }
         return new Response(out, { status: res.status, headers: { "content-type": "application/json" } });
       }
       const sponsor = opts.sponsorUrl ? `. Sponsors pay for these free calls: ${opts.sponsorUrl}` : "";
@@ -374,6 +379,7 @@ export function createPortal(opts: PortalOptions) {
       let price = opts.dailyNeurons;
       if (req.method === "POST") {
         const parsed = await readJson(req);
+        if (co) parsed.stream = true;
         wantsStream = parsed.stream === true;
         if (opts.allowedModels?.length && !opts.allowedModels.includes(String(parsed.model))) return json(400, { error: { message: `model must be one of: ${opts.allowedModels.join(", ")}` } });
         body = JSON.stringify(parsed);
@@ -397,7 +403,7 @@ export function createPortal(opts: PortalOptions) {
       if (up.ok && up.body && (up.headers.get("content-type") ?? "").includes("text/event-stream")) {
         // Words are passed on as they come; the call is counted when the stream ends.
         const count = async (u: { prompt_tokens?: number; completion_tokens?: number }) => { await opts.store.recordUse(key.id, today, { input: u.prompt_tokens ?? 0, output: u.completion_tokens ?? 0, neurons: spent(u) }); };
-        return new Response(meterStream(up.body, count), { headers: SSE_HEADERS });
+        return sendStream(meterStream(up.body, count));
       }
       const text = await up.text();
       let usage: { prompt_tokens?: number; completion_tokens?: number } | undefined;
@@ -406,7 +412,7 @@ export function createPortal(opts: PortalOptions) {
         // Add this call to the counters. Nothing is read first and nothing is written back whole, so a key revoked or
         // created while the (slow) model call ran is left alone.
         await opts.store.recordUse(key.id, today, { input: usage?.prompt_tokens ?? 0, output: usage?.completion_tokens ?? 0, neurons: spent(usage) });
-        if (wantsStream) { try { return new Response(wholeAsChunks(JSON.parse(text)), { headers: SSE_HEADERS }); } catch { /* send it as it came */ } }
+        if (wantsStream) { try { return sendStream(wholeAsChunks(JSON.parse(text))); } catch { /* send it as it came */ } }
       }
       return new Response(text, { status: up.status, headers: { "content-type": up.headers.get("content-type") ?? "application/json" } });
     }
