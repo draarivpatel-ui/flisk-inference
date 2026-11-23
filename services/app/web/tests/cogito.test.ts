@@ -41,7 +41,7 @@ describe("cogitoFrames", () => {
 
 describe("POST /v1/chat/completions with Accept: cogito", () => {
   let seen: Array<{ stream?: boolean }>;
-  function make(upstream: () => Response) {
+  function make(upstream: () => Response | Promise<Response>) {
     seen = [];
     return createPortal({ publicUrl: BASE, upstreamUrl: "http://upstream.test", store: fileStore(dir), indexHtml: () => readFileSync(join(import.meta.dir, "..", "public", "index.html"), "utf-8"),
       devLogin: async () => ME, fetchImpl: (async (_u: RequestInfo | URL, init?: RequestInit) => { seen.push(JSON.parse(String(init?.body ?? "{}"))); return upstream(); }) as typeof fetch });
@@ -72,10 +72,23 @@ describe("POST /v1/chat/completions with Accept: cogito", () => {
     const f = await lines(await call(whole, k, { accept: COGITO_TYPE, "cogito-level": "2" }));
     expect(f[0].h.lvl).toBe(2); expect(f.filter((x) => "t" in x).map((x) => x.t).join("")).toBe("Whole answer"); expect(f.at(-2)).toEqual({ u: [3, 2] });
   });
-  it("an upstream error stays plain JSON with its status", async () => {
+  it("an upstream error becomes an e frame, because the answer has already started", async () => {
     const portal = make(() => new Response(JSON.stringify({ error: { message: "bad" } }), { status: 502, headers: { "content-type": "application/json" } }));
     const k = await key(portal);
-    const r = await call(portal, k, { accept: COGITO_TYPE });
-    expect(r.status).toBe(502); expect(r.headers.get("content-type")).toContain("application/json");
+    const f = await lines(await call(portal, k, { accept: COGITO_TYPE }));
+    expect(f[0].h.v).toBe(1); expect(f.at(-1)).toEqual({ e: { c: "upstream", m: "bad" } });
+  });
+  it("sends hello and thinking BEFORE the model has answered", async () => {
+    let release!: () => void; const gate = new Promise<void>((r) => { release = r; });
+    const portal = make(async () => { await gate; return new Response(JSON.stringify({ choices: [{ message: { content: "late" } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }), { headers: { "content-type": "application/json" } }); });
+    const k = await key(portal);
+    const res = await call(portal, k, { accept: COGITO_TYPE });
+    const reader = res.body!.getReader(); const dec = new TextDecoder();
+    let got = ""; while (got.trim().split("\n").length < 2) got += dec.decode((await reader.read()).value); // the model is still blocked on `gate`
+    const head = got.trim().split("\n").map((l) => JSON.parse(l));
+    expect(head[0].h.v).toBe(1); expect(head[1]).toEqual({ s: "thinking" });
+    release();
+    let rest = ""; for (;;) { const { done, value } = await reader.read(); if (done) break; rest += dec.decode(value); }
+    expect(rest).toContain('"t":"late"'); expect(rest.trim().endsWith('{"d":1}')).toBe(true);
   });
 });

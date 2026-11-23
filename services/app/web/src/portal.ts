@@ -398,7 +398,9 @@ export function createPortal(opts: PortalOptions) {
         }
       }
       if (spill) price = undefined; // the overflow upstream costs no Workers AI neurons
-      const up = await (spill && opts.overflow ? opts.overflow.upstream : upstream)(path, { method: req.method, headers: { "content-type": "application/json" }, body, signal: AbortSignal.timeout(120_000) });
+      const upstreamFn = spill && opts.overflow ? opts.overflow.upstream : upstream;
+      const callUpstream = () => upstreamFn(path, { method: req.method, headers: { "content-type": "application/json" }, body, signal: AbortSignal.timeout(120_000) });
+      const finish = async (up: Response, sendStream: (s: ReadableStream<Uint8Array>) => Response): Promise<Response> => {
       const spent = (u: { prompt_tokens?: number; completion_tokens?: number } | undefined) => (price ? (u?.prompt_tokens ?? 0) * price.perInputToken + (u?.completion_tokens ?? 0) * price.perOutputToken : 0);
       if (up.ok && up.body && (up.headers.get("content-type") ?? "").includes("text/event-stream")) {
         // Words are passed on as they come; the call is counted when the stream ends.
@@ -415,6 +417,22 @@ export function createPortal(opts: PortalOptions) {
         if (wantsStream) { try { return sendStream(wholeAsChunks(JSON.parse(text))); } catch { /* send it as it came */ } }
       }
       return new Response(text, { status: up.status, headers: { "content-type": up.headers.get("content-type") ?? "application/json" } });
+      };
+      // cogito: answer at once (hello + "thinking") and run the model inside the stream, so a slow model is not silent. Auth, limits and body
+      // checks above still fail fast as plain JSON; a failure after the first byte becomes an `e` frame.
+      if (co) {
+        const settle = async (): Promise<ReadableStream<Uint8Array>> => {
+          const r = await finish(await callUpstream(), (s) => new Response(s, { headers: SSE_HEADERS }));
+          if (!r.ok || !r.body) {
+            let m = `upstream answered ${r.status}`;
+            try { m = (JSON.parse(await r.text()) as { error?: { message?: string } }).error?.message ?? m; } catch { /* keep the status line */ }
+            throw Object.assign(new Error(m), { code: r.status === 429 ? "rate_limit" : "upstream" });
+          }
+          return r.body;
+        };
+        return new Response(cogitoFrames(settle(), cogitoLevel(req)), { headers: COGITO_HEADERS });
+      }
+      return finish(await callUpstream(), sendStream);
     }
     if (wantsHtml(req)) return infoPage(opts.name ?? "Portal", "Page not found", `There is nothing at ${path}.`, ["Back to the site", "/"], 404);
     return json(404, { error: "not found" });
