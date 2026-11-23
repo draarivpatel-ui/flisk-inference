@@ -13,39 +13,49 @@ export const cogitoLevel = (req: Request): number => {
 const enc = new TextEncoder();
 const lineOf = (f: unknown) => enc.encode(JSON.stringify(f) + "\n");
 
-/** Turns the OpenAI chat.completion.chunk events (the shape sse.ts writes) into cogito frames. */
-export function cogitoFrames(src: ReadableStream<Uint8Array>, level = 1, id = "r_" + crypto.randomUUID().slice(0, 8)): ReadableStream<Uint8Array> {
+/** Turns the OpenAI chat.completion.chunk events (the shape sse.ts writes) into cogito frames.
+ *  `src` may be a promise: the hello and the first `thinking` go out at once, the frames follow when the stream arrives, and a
+ *  rejection becomes an `e` frame. That is what makes "thinking" visible while a slow model is still working. */
+export function cogitoFrames(src: ReadableStream<Uint8Array> | Promise<ReadableStream<Uint8Array>>, level = 1, id = "r_" + crypto.randomUUID().slice(0, 8)): ReadableStream<Uint8Array> {
   const dec = new TextDecoder();
-  let buf = "", stage = "", usage: [number, number] | null = null;
-  const to = (s: string, ctl: TransformStreamDefaultController<Uint8Array>) => { if (stage !== s) { stage = s; ctl.enqueue(lineOf({ s })); } };
-  const read = (l: string, ctl: TransformStreamDefaultController<Uint8Array>) => {
-    if (!l.startsWith("data:")) return;
-    const data = l.slice(5).trim();
-    if (!data || data === "[DONE]") return;
-    let j: { usage?: { prompt_tokens?: number; completion_tokens?: number }; choices?: Array<{ delta?: { content?: string; reasoning?: string; reasoning_content?: string } }> };
-    try { j = JSON.parse(data); } catch { return; }
-    if (j.usage) usage = [j.usage.prompt_tokens ?? 0, j.usage.completion_tokens ?? 0];
-    const d = j.choices?.[0]?.delta;
-    const why = d?.reasoning ?? d?.reasoning_content;
-    if (why) { to("thinking", ctl); if (level >= 2) ctl.enqueue(lineOf({ r: why })); }
-    if (d?.content) { to("writing", ctl); ctl.enqueue(lineOf({ t: d.content })); }
-  };
-  return src.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
-    start(ctl) {
+  let buf = "", stage = "thinking", usage: [number, number] | null = null;
+  return new ReadableStream<Uint8Array>({
+    async start(ctl) {
+      const out = (f: unknown) => ctl.enqueue(lineOf(f));
+      const to = (s: string) => { if (stage !== s) { stage = s; out({ s }); } };
+      const read = (l: string) => {
+        if (!l.startsWith("data:")) return;
+        const data = l.slice(5).trim();
+        if (!data || data === "[DONE]") return;
+        let j: { usage?: { prompt_tokens?: number; completion_tokens?: number }; choices?: Array<{ delta?: { content?: string; reasoning?: string; reasoning_content?: string } }> };
+        try { j = JSON.parse(data); } catch { return; }
+        if (j.usage) usage = [j.usage.prompt_tokens ?? 0, j.usage.completion_tokens ?? 0];
+        const d = j.choices?.[0]?.delta;
+        const why = d?.reasoning ?? d?.reasoning_content;
+        if (why) { to("thinking"); if (level >= 2) out({ r: why }); }
+        if (d?.content) { to("writing"); out({ t: d.content }); }
+      };
       // Retention is a declaration by this server: it keeps usage counters per key and never the prompt or the answer.
-      ctl.enqueue(lineOf({ h: { v: 1, id, lvl: level, ret: "none", fmt: "ndjson" } }));
-      ctl.enqueue(lineOf({ s: "thinking" })); stage = "thinking";
+      out({ h: { v: 1, id, lvl: level, ret: "none", fmt: "ndjson" } });
+      out({ s: "thinking" });
+      try {
+        const reader = (await src).getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split("\n");
+          buf = lines.pop() ?? "";
+          for (const l of lines) read(l.trim());
+        }
+        if (buf.trim()) read(buf.trim());
+        if (usage) out({ u: usage });
+        out({ d: 1 });
+      } catch (err) {
+        const e = err as { code?: string; message?: string };
+        out({ e: { c: e.code ?? "internal", m: String(e.message ?? err).slice(0, 300) } });
+      }
+      ctl.close();
     },
-    transform(part, ctl) {
-      buf += dec.decode(part, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop() ?? "";
-      for (const l of lines) read(l.trim(), ctl);
-    },
-    flush(ctl) {
-      if (buf.trim()) read(buf.trim(), ctl);
-      if (usage) ctl.enqueue(lineOf({ u: usage }));
-      ctl.enqueue(lineOf({ d: 1 }));
-    },
-  }));
+  });
 }
