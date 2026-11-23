@@ -1,6 +1,14 @@
 // Serves the portal's /v1 API from Cloudflare Workers AI: the Flisk rules and examples from deploy/Modelfile go in
 // front of every conversation, and the answer comes back in the OpenAI chat-completions shape.
 import { openAiChunks, SSE_HEADERS, wholeAsChunks } from "./sse";
+/** Cloudflare's free Workers AI allowance (10,000 neurons a day, error 4006) is account-wide, so it can run out before this portal's own cap.
+ *  That is a limit, not a server fault: say so in plain words with a 429 and the reset time, instead of a raw 502 that names a paid plan. */
+export function modelFailure(e: unknown): Response {
+  const m = (e as Error)?.message ?? String(e);
+  if (/\b4006\b|daily free allocation/i.test(m)) return Response.json({ error: { message: "the free beta's model budget is used up for today; it resets at 00:00 UTC", type: "rate_limit_error" } }, { status: 429, headers: { "retry-after": String(Math.max(60, Math.ceil((Date.parse(new Date().toISOString().slice(0, 10)) + 864e5 - Date.now()) / 1000))) } });
+  return Response.json({ error: { message: `model call failed: ${m}`, type: "api_error" } }, { status: 502 });
+}
+
 export interface ChatMessage { role: string; content: string }
 export interface AiBinding { run(model: string, input: Record<string, unknown>): Promise<unknown> }
 
@@ -48,14 +56,14 @@ export function workersAiUpstream(opts: { ai: AiBinding; model: string; publicMo
         const out = openAiChunks(live, publicModel);
         return new Response(out, { headers: SSE_HEADERS });
       } catch (e) {
-        return Response.json({ error: { message: `model call failed: ${(e as Error).message}`, type: "api_error" } }, { status: 502 });
+        return modelFailure(e);
       }
     }
     let res: { response?: unknown; usage?: { prompt_tokens?: number; completion_tokens?: number }; choices?: Array<{ message?: { content?: string } }> };
     try {
       res = (await opts.ai.run(over.model ?? opts.model, input)) as typeof res;
     } catch (e) {
-      return Response.json({ error: { message: `model call failed: ${(e as Error).message}`, type: "api_error" } }, { status: 502 });
+      return modelFailure(e);
     }
     // Workers AI hands back JSON-looking answers already parsed; OpenAI clients expect the content as text.
     const raw = res.response ?? res.choices?.[0]?.message?.content ?? "";
