@@ -155,7 +155,7 @@ main header h1{font-size:28px}
 .hljs-comment,.hljs-quote,.hljs-meta{color:var(--hl-com);font-style:italic}
 .hljs-punctuation,.hljs-operator{color:var(--mut)}
 .code .lang{position:absolute;top:13px;right:76px;font:600 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
-/* predicted next action: a rainbow border that spins; one element per page carries data-next-cta */
+/* predicted next action: a rainbow border that spins (one element per page, marked in the markup) */
 @property --next-cta-angle{syntax:"<angle>";inherits:false;initial-value:0deg}
 @keyframes next-cta-spin{to{--next-cta-angle:360deg}}
 .btn.primary.next-cta,.btn.primary.next-cta:hover{border:2px solid transparent;background:linear-gradient(var(--acc),var(--acc)) padding-box,conic-gradient(from var(--next-cta-angle),var(--acc),var(--blue),var(--amber),var(--red),var(--acc)) border-box;animation:next-cta-spin 3s linear infinite}
