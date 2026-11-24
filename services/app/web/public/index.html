@@ -156,6 +156,11 @@ main header h1{font-size:28px}
 .hljs-comment,.hljs-quote,.hljs-meta{color:var(--hl-com);font-style:italic}
 .hljs-punctuation,.hljs-operator{color:var(--mut)}
 .code .lang{position:absolute;top:13px;right:76px;font:600 10px var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--faint)}
+/* predicted next action: a rainbow border that spins (one element per page, marked in the markup) */
+@property --next-cta-angle{syntax:"<angle>";inherits:false;initial-value:0deg}
+@keyframes next-cta-spin{to{--next-cta-angle:360deg}}
+.btn.primary.next-cta,.btn.primary.next-cta:hover{border:2px solid transparent;background:linear-gradient(var(--acc),var(--acc)) padding-box,conic-gradient(from var(--next-cta-angle),var(--acc),var(--blue),var(--amber),var(--red),var(--acc)) border-box;animation:next-cta-spin 3s linear infinite}
+@media(prefers-reduced-motion:reduce){.btn.primary.next-cta,.btn.primary.next-cta:hover{animation:none}}
 </style>
 </head>
 <body>
@@ -357,7 +362,7 @@ function landing(){
     h("h1",{},"A free AI model for your apps."),
     h("p",{class:"lead"},"Get a free key in one minute and call the model from any app, script or chatbot. It speaks the OpenAI API, so your existing code works. Free beta, limited capacity."),
     h("div",{class:"flow"},h("div",{},"Your app",h("small",{},"any OpenAI SDK")),h("i",{},"→"),h("div",{},"Flisk Inference",h("small",{},"free model")),h("i",{},"→"),h("div",{},"Answer",h("small",{},"text or JSON"))),
-    h("div",{class:"cta"},h("a",{class:"btn primary",href:"?section=keys"},"Get a free API key"),h("a",{class:"btn",href:"#demos"},"See it work")),
+    h("div",{class:"cta"},h("a",{class:"btn primary next-cta","data-next-cta":"",href:"?section=keys"},"Get a free API key"),h("a",{class:"btn",href:"#demos"},"See it work")),
     h("ul",{class:"proof"},h("li",{},"No card, sign in with GitHub"),h("li",{},"Works with any OpenAI SDK"),h("li",{},"Also reviews your service.json in pull requests")),
     h("div",{class:"links"},h("a",{href:"https://chat.flisk.si"},"Try it in chat →"),h("a",{href:"#api"},"API quickstart →"),h("a",{href:"https://github.com/flisk-sh/flisk-inference"},"Source on GitHub →"))),
    h("div",{class:"demo card"},
