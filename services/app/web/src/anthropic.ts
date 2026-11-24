@@ -66,6 +66,7 @@ export function anthropicToOpenAI(body: Json, cap: number): Json {
     max_tokens: Math.min(Number(body.max_tokens) || cap, cap),
     ...(typeof body.temperature === "number" ? { temperature: body.temperature } : {}),
     ...(tools.length ? { tools: tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description ?? "", parameters: t.input_schema ?? { type: "object", properties: {} } } })) } : {}),
+    ...(tools.length && choice?.type === "none" ? { tool_choice: "none" } : {}),
     ...(tools.length && choice?.type === "any" ? { tool_choice: "required" } : {}),
     ...(tools.length && choice?.type === "tool" ? { tool_choice: { type: "function", function: { name: choice.name } } } : {}),
   };
