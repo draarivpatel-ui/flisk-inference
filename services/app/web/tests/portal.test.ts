@@ -514,8 +514,10 @@ describe("site icons", () => {
     expect(html).toContain('<link rel="icon" href="/favicon.ico" sizes="32x32">');
     expect(html).toContain('<link rel="icon" href="/icon.svg" type="image/svg+xml">');
     expect(html).toContain('<link rel="apple-touch-icon" href="/apple-touch-icon.png">');
-    // The logo sits next to its own name, so it is decorative: empty alt and hidden from screen readers.
-    expect(html).toContain('<img src=\\"/icon.svg\\" alt=\\"\\" aria-hidden=\\"true\\" width=\\"26\\" height=\\"26\\">');
+    // The org bar card already shows the logo, so the site's own header (landing nav and signed-in sidebar) carries the wordmark only.
+    expect(html).not.toContain('<img src=\\"/icon.svg\\"');
+    expect(html).toContain('html:"<span>Flisk Inference</span>"');
+    expect(html).toContain('html:"<span>Inference</span>"');
     expect(html).toContain('<meta property="og:image" content="https://inference.flisk.si/og.png">');
     expect(html).not.toContain("SVG.logo");
   });
