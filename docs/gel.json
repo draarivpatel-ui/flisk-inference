@@ -45,5 +45,20 @@
     "result": "docs/north-star/result.json",
     "evidence": "docs/north-star/README.md",
     "max_age_days": 30
+  },
+  "status": "active",
+  "owner": "@odykyi",
+  "repo_health": {
+    "inherit": [
+      "CONTRIBUTING",
+      "SECURITY"
+    ]
+  },
+  "reasons": {
+    "frozen-install": "ci.yml runs bun install and services/app/web has no lockfile; creating and committing a bun lockfile changes dependency resolution and needs a maintainer to review the generated lock",
+    "product-brief": "no product brief with measured what/who/why/how/where/when numbers exists yet; not inventing one",
+    "ice-score": "ROADMAP.md confidence 8-9 rows have no linked evidence yet; scores are the maintainers' call, not lowered just to pass",
+    "install-ignore-scripts": "bun install in ci.yml without --ignore-scripts; whether the build needs dependency postinstall scripts must be tested by a maintainer",
+    "north-star": "north_star.result docs/north-star/result.json is not committed; the measurement has not been run, so there is no real number yet"
   }
 }

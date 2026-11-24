@@ -7,7 +7,7 @@ report=$(flisk config verify --json 2>/dev/null || true)
 echo "$report" | jq -r '.data.errors[]?' | sed -E 's/(service\.json)\..*/\1/' | sort -u | while read -r file; do
   errors=$(echo "$report" | jq -r --arg f "$file" '.data.errors[] | select(startswith($f))')
   prompt=$(printf 'This Flisk service.json is rejected:\n%s\n\nThe validator says:\n%s\n\nFix it with the smallest change that makes it valid, keeping every other field. Reply with the corrected JSON object only.' "$(cat "$file")" "$errors")
-  curl -sf "$API/chat/completions" -H "authorization: Bearer ${FLISK_INFERENCE_KEY:-}" -H 'content-type: application/json' \
+  curl -sf --proto '=https' "$API/chat/completions" -H "authorization: Bearer ${FLISK_INFERENCE_KEY:-}" -H 'content-type: application/json' \
     -d "$(jq -n --arg p "$prompt" '{model: "flisk-wolf", messages: [{role: "user", content: $p}]}')" \
     | jq -r '.choices[0].message.content' | sed -E '/^```/d' > "$file.suggested"
   echo "Suggested fix for $file:"
