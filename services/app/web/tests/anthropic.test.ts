@@ -32,6 +32,21 @@ describe("anthropicToOpenAI", () => {
     const out = anthropicToOpenAI({ messages: [{ role: "user", content: "hi" }] }, 10) as { messages: unknown[] };
     expect(out.messages).toEqual([{ role: "user", content: "hi" }]);
   });
+  it("disables new tool calls when the caller sets tool_choice to none", () => {
+    const out = anthropicToOpenAI({
+      tool_choice: { type: "none" },
+      tools: [{ name: "lookup" }],
+      messages: [
+        { role: "assistant", content: [{ type: "tool_use", id: "t1", name: "lookup", input: {} }] },
+        { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "found it" }] },
+      ],
+    }, 100);
+    expect(out.tool_choice).toBe("none");
+    expect(out.messages).toEqual([
+      { role: "assistant", content: "", tool_calls: [{ id: "t1", type: "function", function: { name: "lookup", arguments: "{}" } }] },
+      { role: "tool", tool_call_id: "t1", content: "found it" },
+    ]);
+  });
 });
 
 describe("old screenshots", () => {
